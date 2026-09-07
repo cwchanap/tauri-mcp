@@ -1,0 +1,28 @@
+{
+  "name": "tauri-mcp-cli",
+  "version": "0.12.0",
+  "description": "Connect Codex to Tauri v2 applications through the Tauri MCP server and bundled CLI skill.",
+  "author": {
+    "name": "hypothesi",
+    "url": "https://github.com/hypothesi"
+  },
+  "homepage": "https://github.com/cwchanap/tauri-mcp",
+  "repository": "https://github.com/cwchanap/tauri-mcp",
+  "license": "MIT",
+  "keywords": ["tauri", "mcp", "codex", "automation", "testing"],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Tauri MCP",
+    "shortDescription": "Inspect, automate, and debug Tauri v2 apps.",
+    "longDescription": "Connect Codex to a running Tauri v2 app for webview inspection, UI automation, screenshots, IPC debugging, window management, and mobile development workflows.",
+    "developerName": "hypothesi",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/cwchanap/tauri-mcp",
+    "defaultPrompt": [
+      "Inspect this Tauri app and summarize its current UI state.",
+      "Use Tauri MCP to reproduce and diagnose this UI issue.",
+      "Implement this Tauri change and verify it in the running app."
+    ]
+  }
+}

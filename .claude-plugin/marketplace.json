@@ -1,30 +1,23 @@
 {
-  "name": "tauri-mcp-skills",
+  "name": "cwchanap",
   "owner": {
-    "name": "hypothesi",
-    "url": "https://github.com/hypothesi"
+    "name": "cwchanap",
+    "url": "https://github.com/cwchanap"
   },
   "metadata": {
-    "description": "Agent skills for automating and testing Tauri v2 applications using the MCP server.",
-    "version": "0.11.0"
+    "description": "Tauri MCP agent plugin distribution for Claude Code.",
+    "version": "0.12.0"
   },
   "plugins": [
     {
       "name": "tauri-mcp-cli",
-      "description": "Agent Skills for automating, inspecting, and testing Tauri v2 applications directly from the terminal. Includes skills for driver-session management, webview inspection, and UI interactions.",
+      "description": "Tauri MCP tools and CLI skill for automating, inspecting, and testing Tauri v2 applications.",
       "author": {
         "name": "hypothesi",
         "url": "https://github.com/hypothesi"
       },
-      "homepage": "https://github.com/hypothesi/mcp-server-tauri",
-      "tags": [
-        "tauri",
-        "mcp",
-        "automation",
-        "testing",
-        "cli",
-        "webview"
-      ],
+      "homepage": "https://github.com/cwchanap/tauri-mcp",
+      "tags": ["tauri", "mcp", "automation", "testing", "cli", "webview"],
       "source": "./packages/cli"
     }
   ]

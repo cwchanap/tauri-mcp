@@ -1,11 +1,15 @@
 {
-   "name": "tauri-mcp-cli",
-   "description": "Exposes Tauri MCP skills that can be used to control the webview of a running Tauri app from an AI assistant.",
-   "version": "0.12.0",
-   "author": {
-      "name": "hypothesi"
-   },
-   "license": "MIT",
-   "homepage": "https://github.com/hypothesi/mcp-server-tauri",
-   "repository": "https://github.com/hypothesi/mcp-server-tauri"
+  "name": "tauri-mcp-cli",
+  "displayName": "Tauri MCP",
+  "description": "Connect Claude Code to Tauri v2 applications through the Tauri MCP server and bundled CLI skill.",
+  "version": "0.12.0",
+  "author": {
+    "name": "hypothesi",
+    "url": "https://github.com/hypothesi"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/cwchanap/tauri-mcp",
+  "repository": "https://github.com/cwchanap/tauri-mcp",
+  "keywords": ["tauri", "mcp", "claude-code", "automation", "testing"],
+  "mcpServers": "./.mcp.json"
 }
