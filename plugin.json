@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tauri-mcp-cli",
+  "version": "0.12.0",
+  "description": "Connect AI coding agents to Tauri v2 applications through the Tauri MCP server and bundled CLI skill.",
+  "author": {
+    "name": "hypothesi",
+    "url": "https://github.com/hypothesi"
+  },
+  "homepage": "https://github.com/cwchanap/tauri-mcp",
+  "repository": "https://github.com/cwchanap/tauri-mcp",
+  "license": "MIT",
+  "keywords": ["tauri", "mcp", "agent-plugin", "automation", "testing"]
+}
