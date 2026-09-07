@@ -4,9 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url)),
-      CLI_ROOT = path.join(REPO_ROOT, 'packages', 'cli'),
-      SERVER_PACKAGE = '@hypothesi/tauri-mcp-server@0.12.0',
-      PI_ADAPTER_VERSION = '4.3.1';
+      SERVER_PACKAGE = '@hypothesi/tauri-mcp-server@0.12.0';
 
 function readJson(relativePath: string): Record<string, unknown> {
    return JSON.parse(readFileSync(path.join(REPO_ROOT, relativePath), 'utf8')) as Record<string, unknown>;
@@ -63,24 +61,26 @@ describe('cross-agent plugin distribution', () => {
       }));
    });
 
-   it('packages the existing Tauri skill and a thin MCP adapter extension for Pi', () => {
-      const rootPackage = readJson('package.json') as {
-               dependencies?: Record<string, string>;
-               pi?: { extensions?: string[]; skills?: string[] };
+   it('ships a portable Agent Plugins package for Pi without adding another MCP runtime', () => {
+      const cliPackage = readJson('packages/cli/package.json') as { version: string },
+            portablePlugin = readJson('plugin.json') as { $schema: string; name: string; version: string },
+            portableMcp = readJson('mcp.json') as {
+               $schema: string;
+               mcpServers: Record<string, { type: string; command: string; args: string[]; cwd: string }>;
             },
-            lockfile = readJson('package-lock.json') as {
-               packages: Record<string, { version?: string; dependencies?: Record<string, string> }>;
-            },
-            extension = readFileSync(path.join(CLI_ROOT, 'pi', 'tauri-mcp.ts'), 'utf8');
+            rootSkill = readFileSync(path.join(REPO_ROOT, 'skills', 'tauri-mcp-cli', 'SKILL.md'), 'utf8'),
+            cliSkill = readFileSync(path.join(REPO_ROOT, 'packages', 'cli', 'skills', 'tauri-mcp-cli', 'SKILL.md'), 'utf8');
 
-      expect(rootPackage.dependencies?.['pi-mcp-adapter']).toBe(PI_ADAPTER_VERSION);
-      expect(rootPackage.pi).toEqual({
-         extensions: [ './packages/cli/pi/tauri-mcp.ts' ],
-         skills: [ './packages/cli/skills' ],
+      expect(portablePlugin.$schema).toBe('https://agent-plugins.org/schemas/1.0.0/plugin.schema.json');
+      expect(portablePlugin.name).toBe('tauri-mcp-cli');
+      expect(portablePlugin.version).toBe(cliPackage.version);
+      expect(portableMcp.$schema).toBe('https://agent-plugins.org/schemas/1.0.0/mcp.schema.json');
+      expect(portableMcp.mcpServers.tauri).toEqual({
+         type: 'stdio',
+         command: 'npx',
+         args: [ '-y', SERVER_PACKAGE ],
+         cwd: '${PLUGIN_DATA}',
       });
-      expect(lockfile.packages[''].dependencies?.['pi-mcp-adapter']).toBe(PI_ADAPTER_VERSION);
-      expect(lockfile.packages['node_modules/pi-mcp-adapter']?.version).toBe(PI_ADAPTER_VERSION);
-      expect(extension).toContain("import { createMcpAdapter } from 'pi-mcp-adapter';");
-      expect(extension).toContain(SERVER_PACKAGE);
+      expect(rootSkill).toBe(cliSkill);
    });
 });
