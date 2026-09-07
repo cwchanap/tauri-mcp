@@ -1,97 +1,77 @@
 ---
 title: Claude Code Plugin
-description: Install Tauri MCP agent skills as a Claude Code Plugin for seamless integration.
+description: Install Tauri MCP tools and the bundled CLI skill as a Claude Code Plugin.
 head:
   - - meta
     - name: keywords
-      content: claude code plugin, marketplace, tauri mcp, agent skills
+      content: claude code plugin, marketplace, tauri mcp, agent skills, mcp server
 ---
 
 # Claude Code Plugin
 
-The Tauri MCP CLI is available as a **Claude Code Plugin**, making it easy to install
-agent skills directly into Claude Code without manual file editing.
+The Tauri MCP CLI is available as a **Claude Code Plugin**. The plugin bundles the existing `tauri-mcp-cli` Agent Skill and automatically wires the Tauri MCP server through the shared `packages/cli/.mcp.json` launcher.
 
 ## Install from Marketplace
 
 ### 1. Add the marketplace
 
-In Claude Code, run:
+Inside Claude Code:
 
-```
-/plugin marketplace add hypothesi/mcp-server-tauri
+```text
+/plugin marketplace add cwchanap/tauri-mcp
 ```
 
 ### 2. Install the plugin
 
-```
-/plugin install tauri-mcp-cli
+```text
+/plugin install tauri-mcp-cli@cwchanap
 ```
 
 ### 3. Verify
 
-```
+```text
 /plugin list
 ```
 
-You should see `tauri-mcp-cli` listed and enabled.
+You should see `tauri-mcp-cli` listed and enabled. Start a fresh Claude Code session if the MCP tools were not loaded in the current session.
 
 ## What Gets Installed
 
 The plugin provides:
 
-- **Agent Skill** — one bundled `tauri-mcp-cli` skill that teaches Claude Code how to use
-  the Tauri MCP CLI correctly across session lifecycle, UI interaction, screenshots, IPC
-  debugging, and mobile or remote devices
-- **Slash commands** — any commands defined in the plugin
+- **Tauri MCP connection** — launches `npx -y @hypothesi/tauri-mcp-server@0.12.0` through the shared `.mcp.json` configuration.
+- **Agent Skill** — the bundled `tauri-mcp-cli` skill covering driver-session management, webview inspection, UI interactions, screenshots, IPC debugging, and mobile or remote devices.
+
+There is no Claude-specific MCP implementation; Claude Code and Codex use the same published Tauri MCP server.
 
 ## Managing the Plugin
 
-```bash
-# Enable the plugin
+```text
 /plugin enable tauri-mcp-cli
-
-# Disable without removing
 /plugin disable tauri-mcp-cli
-
-# Remove completely
 /plugin uninstall tauri-mcp-cli
+```
+
+## Direct MCP Fallback
+
+If you prefer direct MCP configuration instead of the plugin wrapper:
+
+```bash
+claude mcp add --transport stdio tauri -- npx -y @hypothesi/tauri-mcp-server@0.12.0
 ```
 
 ## Plugin Structure
 
-The plugin follows the standard Claude Code Plugin format:
-
-```
+```text
 packages/cli/
 ├── .claude-plugin/
-│   └── plugin.json          # Plugin metadata
-├── skills/
-│   └── tauri-mcp-cli/
-│       └── SKILL.md
-└── ...
+│   └── plugin.json
+├── .mcp.json
+├── .codex-plugin/
+│   └── plugin.json
+└── skills/
+    └── tauri-mcp-cli/
+        └── SKILL.md
 ```
 
-The plugin manifest lives at `.claude-plugin/plugin.json`:
-
-```json
-{
-  "name": "tauri-mcp-cli",
-  "description": "Agent Skills for automating and testing Tauri v2 applications",
-  "version": "0.9.0"
-}
-```
-
-## Alternative Installation Methods
-
-If you prefer not to use the plugin system:
-
-- **[Agent Skills via `npx skills`](/guides/agent-skills)** — works with 40+ agents, not
-  just Claude Code
-- **[CLI direct install](/guides/cli)** — `npm i -g @hypothesi/tauri-mcp-cli`
-
-## Further Reading
-
-- [Claude Code Plugin documentation](https://code.claude.com/docs/en/plugin-marketplaces)
-- [Agent Skills guide](/guides/agent-skills)
-- [CLI Usage](/guides/cli)
+See [Agent Plugins](/guides/agent-plugins) for the Codex and Pi installation flows, or [Agent Skills](/guides/agent-skills) for skill-only installation.
