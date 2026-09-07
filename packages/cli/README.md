@@ -14,6 +14,48 @@ Or run without a permanent install:
 npx @hypothesi/tauri-mcp-cli <command>
 ```
 
+## Agent Plugin Setup
+
+This repository also packages the CLI skill together with the Tauri MCP connection for Codex, Claude Code, and Pi.
+
+### Codex
+
+```bash
+codex plugin marketplace add cwchanap/tauri-mcp
+codex plugin add tauri-mcp-cli@cwchanap
+```
+
+Start a new Codex task after installation so the Tauri MCP tools are loaded.
+
+### Claude Code
+
+Inside Claude Code:
+
+```text
+/plugin marketplace add cwchanap/tauri-mcp
+/plugin install tauri-mcp-cli@cwchanap
+```
+
+The Claude plugin loads both this package's skill and the shared Tauri MCP launcher.
+
+### Pi
+
+Install the community MCP/Agent Plugins bridge once:
+
+```bash
+pi install npm:pi-mcp-adapter
+pi install npm:pi-agent-plugins
+```
+
+Then inside Pi:
+
+```text
+/plugin install https://github.com/cwchanap/tauri-mcp.git
+/plugin trust tauri-mcp-cli
+```
+
+See the [Agent Plugins guide](../../docs/guides/agent-plugins.md) for details and the direct MCP fallback.
+
 ## Session Lifecycle
 
 Most automation tools require an active driver session. Start one before calling other tools.
