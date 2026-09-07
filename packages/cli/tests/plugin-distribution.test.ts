@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url)),
-      SERVER_PACKAGE = '@hypothesi/tauri-mcp-server@0.12.0';
+      SERVER_PACKAGE_NAME = '@hypothesi/tauri-mcp-server';
 
 function readJson(relativePath: string): Record<string, unknown> {
    return JSON.parse(readFileSync(path.join(REPO_ROOT, relativePath), 'utf8')) as Record<string, unknown>;
@@ -13,6 +13,8 @@ function readJson(relativePath: string): Record<string, unknown> {
 describe('cross-agent plugin distribution', () => {
    it('shares one pinned Tauri MCP launcher between Codex and Claude Code', () => {
       const cliPackage = readJson('packages/cli/package.json') as { version: string },
+            serverPackage = readJson('packages/mcp-server/package.json') as { version: string },
+            serverPackageSpec = `${SERVER_PACKAGE_NAME}@${serverPackage.version}`,
             mcp = readJson('packages/cli/.mcp.json') as {
                mcpServers: Record<string, { type: string; command: string; args: string[] }>;
             },
@@ -25,10 +27,11 @@ describe('cross-agent plugin distribution', () => {
                mcpServers: string;
             };
 
+      expect(cliPackage.version).toBe(serverPackage.version);
       expect(mcp.mcpServers.tauri).toEqual({
          type: 'stdio',
          command: 'npx',
-         args: [ '-y', SERVER_PACKAGE ],
+         args: [ '-y', serverPackageSpec ],
       });
       expect(codex.version).toBe(cliPackage.version);
       expect(codex.mcpServers).toBe('./.mcp.json');
@@ -63,6 +66,8 @@ describe('cross-agent plugin distribution', () => {
 
    it('ships a portable Agent Plugins package for Pi without adding another MCP runtime', () => {
       const cliPackage = readJson('packages/cli/package.json') as { version: string },
+            serverPackage = readJson('packages/mcp-server/package.json') as { version: string },
+            serverPackageSpec = `${SERVER_PACKAGE_NAME}@${serverPackage.version}`,
             portablePlugin = readJson('plugin.json') as { $schema: string; name: string; version: string },
             portableMcp = readJson('mcp.json') as {
                $schema: string;
@@ -78,7 +83,7 @@ describe('cross-agent plugin distribution', () => {
       expect(portableMcp.mcpServers.tauri).toEqual({
          type: 'stdio',
          command: 'npx',
-         args: [ '-y', SERVER_PACKAGE ],
+         args: [ '-y', serverPackageSpec ],
          cwd: '${PLUGIN_DATA}',
       });
       expect(rootSkill).toBe(cliSkill);
