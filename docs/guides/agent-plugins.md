@@ -69,6 +69,12 @@ The Agent Plugins loader discovers the root `plugin.json`, `mcp.json`, and `skil
 
 `pi-mcp-adapter` and `pi-agent-plugins` are community-maintained. Review their source and this repository before installing or trusting a plugin because trusted MCP servers run with your user permissions.
 
+## Portable Mode Routing
+
+The portable `mcp.json` launches the MCP server with `cwd: ${PLUGIN_DATA}`, which the Agent Plugins client expands to a plugin-specific data directory. The server's CWD-based routing (`MCP_BRIDGE_CWD`, then `process.cwd()`) cannot match that directory to any running Tauri app's workspace, so when multiple Tauri apps are connected at once, requests route to the most-recently-connected default app.
+
+If you run more than one Tauri app concurrently through the portable plugin, pass an explicit app identifier (port number or bundle ID) on each tool call, or set `MCP_BRIDGE_CWD` in the launched server's environment to the relevant workspace path before starting the session.
+
 ## Direct MCP Fallback
 
 Any MCP-compatible agent can skip plugin metadata and launch the same server directly:

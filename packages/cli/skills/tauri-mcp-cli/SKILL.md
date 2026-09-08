@@ -3,14 +3,14 @@ name: tauri-mcp-cli
 description: Use the Tauri MCP CLI to start and recover driver sessions, automate Tauri webviews, capture UI state, debug IPC, and work with mobile or remote devices. Use whenever an agent needs to operate a Tauri v2 app from terminal commands.
 license: MIT
 metadata:
-  sources:
-    - packages/cli/README.md
-    - docs/guides/cli.md
-    - docs/api/webview-interaction.md
-    - docs/api/ui-automation.md
-    - docs/api/ipc-plugin.md
-    - docs/api/mobile-development.md
-    - packages/cli/src/index.ts
+  sources: |-
+    packages/cli/README.md
+    docs/guides/cli.md
+    docs/api/webview-interaction.md
+    docs/api/ui-automation.md
+    docs/api/ipc-plugin.md
+    docs/api/mobile-development.md
+    packages/cli/src/index.ts
 ---
 
 # Tauri MCP CLI
@@ -22,6 +22,7 @@ Use this skill for the entire CLI workflow. The package intentionally ships a si
 - The app is running in development mode, usually with `cargo tauri dev`.
 - The `tauri-plugin-mcp-bridge` plugin is installed and registered.
 - `src-tauri/tauri.conf.json` sets `withGlobalTauri: true`.
+- The `tauri-mcp` CLI binary is installed separately for the shell commands below: `npm install -g @hypothesi/tauri-mcp-cli`. The MCP server installed by the plugin (`@hypothesi/tauri-mcp-server`) exposes the same capabilities as MCP tools over stdio and does not provide the `tauri-mcp` binary.
 
 ## Core Rule
 
