@@ -6,26 +6,36 @@ import { describe, expect, it } from 'vitest';
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url)),
       SERVER_PACKAGE_NAME = '@hypothesi/tauri-mcp-server';
 
+type CliPackage = { version: string };
+type ServerPackage = { version: string };
+type McpConfig = { mcpServers: Record<string, { type: string; command: string; args: string[] }> };
+type PluginConfig = { version: string; mcpServers: string };
+type CodexMarketplace = {
+   name: string;
+   plugins: Array<{ name: string; source: { source: string; path: string } }>;
+};
+type ClaudeMarketplace = {
+   name: string;
+   plugins: Array<{ name: string; source: string }>;
+};
+type PortablePlugin = { $schema: string; name: string; version: string };
+type PortableMcp = {
+   $schema: string;
+   mcpServers: Record<string, { type: string; command: string; args: string[]; cwd: string }>;
+};
+
 function readJson(relativePath: string): Record<string, unknown> {
    return JSON.parse(readFileSync(path.join(REPO_ROOT, relativePath), 'utf8')) as Record<string, unknown>;
 }
 
 describe('cross-agent plugin distribution', () => {
    it('shares one pinned Tauri MCP launcher between Codex and Claude Code', () => {
-      const cliPackage = readJson('packages/cli/package.json') as { version: string },
-            serverPackage = readJson('packages/mcp-server/package.json') as { version: string },
+      const cliPackage = readJson('packages/cli/package.json') as CliPackage,
+            serverPackage = readJson('packages/mcp-server/package.json') as ServerPackage,
             serverPackageSpec = `${SERVER_PACKAGE_NAME}@${serverPackage.version}`,
-            mcp = readJson('packages/cli/.mcp.json') as {
-               mcpServers: Record<string, { type: string; command: string; args: string[] }>;
-            },
-            codex = readJson('packages/cli/.codex-plugin/plugin.json') as {
-               version: string;
-               mcpServers: string;
-            },
-            claude = readJson('packages/cli/.claude-plugin/plugin.json') as {
-               version: string;
-               mcpServers: string;
-            };
+            mcp = readJson('packages/cli/.mcp.json') as McpConfig,
+            codex = readJson('packages/cli/.codex-plugin/plugin.json') as PluginConfig,
+            claude = readJson('packages/cli/.claude-plugin/plugin.json') as PluginConfig;
 
       expect(cliPackage.version).toBe(serverPackage.version);
       expect(mcp.mcpServers.tauri).toEqual({
@@ -40,14 +50,8 @@ describe('cross-agent plugin distribution', () => {
    });
 
    it('exposes the CLI plugin through the Codex and Claude marketplaces in this repository', () => {
-      const codexMarketplace = readJson('.agents/plugins/marketplace.json') as {
-               name: string;
-               plugins: Array<{ name: string; source: { source: string; path: string } }>;
-            },
-            claudeMarketplace = readJson('.claude-plugin/marketplace.json') as {
-               name: string;
-               plugins: Array<{ name: string; source: string }>;
-            };
+      const codexMarketplace = readJson('.agents/plugins/marketplace.json') as CodexMarketplace,
+            claudeMarketplace = readJson('.claude-plugin/marketplace.json') as ClaudeMarketplace;
 
       expect(codexMarketplace.name).toBe('cwchanap');
       expect(codexMarketplace.plugins).toContainEqual(expect.objectContaining({
@@ -65,14 +69,11 @@ describe('cross-agent plugin distribution', () => {
    });
 
    it('ships a portable Agent Plugins package for Pi without adding another MCP runtime', () => {
-      const cliPackage = readJson('packages/cli/package.json') as { version: string },
-            serverPackage = readJson('packages/mcp-server/package.json') as { version: string },
+      const cliPackage = readJson('packages/cli/package.json') as CliPackage,
+            serverPackage = readJson('packages/mcp-server/package.json') as ServerPackage,
             serverPackageSpec = `${SERVER_PACKAGE_NAME}@${serverPackage.version}`,
-            portablePlugin = readJson('plugin.json') as { $schema: string; name: string; version: string },
-            portableMcp = readJson('mcp.json') as {
-               $schema: string;
-               mcpServers: Record<string, { type: string; command: string; args: string[]; cwd: string }>;
-            },
+            portablePlugin = readJson('plugin.json') as PortablePlugin,
+            portableMcp = readJson('mcp.json') as PortableMcp,
             rootSkill = readFileSync(path.join(REPO_ROOT, 'skills', 'tauri-mcp-cli', 'SKILL.md'), 'utf8'),
             cliSkill = readFileSync(path.join(REPO_ROOT, 'packages', 'cli', 'skills', 'tauri-mcp-cli', 'SKILL.md'), 'utf8');
 
