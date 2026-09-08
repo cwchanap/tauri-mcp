@@ -8,6 +8,9 @@
       "packages/cli",
       "packages/test-app"
    ],
+   "pi": {
+      "mcp": "./pi-mcp.json"
+   },
    "scripts": {
       "dev": "concurrently -n server,app -c blue,green \"npm run dev -w @hypothesi/tauri-mcp-server\" \"npm run tauri dev -w test-app\"",
       "build": "npm run build --workspaces",
