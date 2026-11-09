@@ -712,24 +712,29 @@ struct ScriptOperationResult {
 }
 
 /// Injects a script into a specific webview window.
-fn inject_script_to_window<R: Runtime>(
+pub(crate) fn inject_script_to_window<R: Runtime>(
     window: &WebviewWindow<R>,
     entry: &ScriptEntry,
 ) -> Result<(), String> {
     let script = match entry.script_type {
+        // Native evaluation bypasses page CSP; an executable DOM tag does not.
         ScriptType::Inline => format!(
             r#"
+            {}
+            ;
             (function() {{
                 var existing = document.querySelector('script[data-mcp-script-id="{}"]');
                 if (existing) {{
                     existing.remove();
                 }}
                 var script = document.createElement('script');
+                script.type = 'application/json';
                 script.setAttribute('data-mcp-script-id', '{}');
                 script.textContent = {};
                 document.head.appendChild(script);
             }})();
             "#,
+            entry.content,
             entry.id,
             entry.id,
             serde_json::to_string(&entry.content).unwrap_or_else(|_| "''".to_string())

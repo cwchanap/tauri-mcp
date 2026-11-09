@@ -235,6 +235,7 @@ export interface ScreenshotOptions {
 export interface ScreenshotFileResult {
    filePath: string;
    format: 'png' | 'jpeg';
+   context: string;
 }
 
 export async function screenshot(options: ScreenshotOptions = {}): Promise<ScreenshotResult | ScreenshotFileResult> {
@@ -258,7 +259,12 @@ export async function screenshot(options: ScreenshotOptions = {}): Promise<Scree
 
       await writeFile(resolvedPath, imageContent.data, 'base64');
 
-      return { filePath: resolvedPath, format };
+      const context = result.content
+         .filter((item) => { return item.type === 'text'; })
+         .map((item) => { return item.text; })
+         .join('\n');
+
+      return { filePath: resolvedPath, format, context };
    }
 
    return result;

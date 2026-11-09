@@ -160,6 +160,15 @@ jobs:
           projectPath: packages/test-app
           args: ${{ matrix.args }}
 
+      - name: Run packaged CSP helper regression (macOS)
+        if: matrix.platform == 'macos-latest'
+        env:
+          TAURI_MCP_TEST_APP_BINARY: ${{ github.workspace }}/packages/test-app/src-tauri/target/debug/test-app
+        run: |
+          npm run build:server
+          cargo build --manifest-path packages/test-app/src-tauri/Cargo.toml --features tauri/custom-protocol
+          npm run test:e2e -w @hypothesi/tauri-mcp-server -- tests/e2e/csp-helpers.test.ts
+
   lint-and-standards:
     name: Lint and Standards Check
     runs-on: ubuntu-latest

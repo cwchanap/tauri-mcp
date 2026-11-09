@@ -125,6 +125,8 @@ Capture a screenshot of the current viewport (visible area) of the webview.
 
 Returns a base64-encoded image, or if `filePath` is provided, returns the path where the screenshot was saved.
 
+Native WebView snapshots and the html2canvas fallback do not verify GPU surface capture. WebGPU/WebGL canvases can appear black or empty even when the renderer produced a frame. These responses include a capture limitation, including when saving to a file. Compare with an OS-level screenshot to verify visible presentation; renderer readback alone only verifies rendering. WebKit tracks a related hardware-accelerated snapshot limitation in [bug 198107](https://bugs.webkit.org/show_bug.cgi?id=198107).
+
 The Screen Capture API fallback is disabled by default because it opens an operating-system permission prompt and may share more than the target webview. Set `allowScreenCapture` only when that interactive fallback is desired.
 
 ### Environment Variable

@@ -19,7 +19,11 @@ async function startGlobalTestApp(): Promise<void> {
    return new Promise((resolve, reject) => {
       console.log('🚀 Starting Tauri app globally (once for all tests)...');
 
-      tauriProcess = spawn('npm', [ 'run', 'tauri', 'dev' ], {
+      // A packaged-origin binary exercises CSP enforcement that tauri dev does not.
+      // eslint-disable-next-line no-process-env
+      const testAppBinary = process.env.TAURI_MCP_TEST_APP_BINARY;
+
+      tauriProcess = spawn(testAppBinary || 'npm', testAppBinary ? [] : [ 'run', 'tauri', 'dev' ], {
          cwd: TEST_APP_PATH,
          stdio: 'pipe',
          shell: true,

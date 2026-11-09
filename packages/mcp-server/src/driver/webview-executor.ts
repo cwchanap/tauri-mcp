@@ -382,6 +382,10 @@ function buildScreenshotResult(dataUrl: string, method: string, windowContext?: 
          contextText += `\n\n⚠️ ${windowContext.warning}`;
       }
    }
+   if (method === 'native API' || method === 'html2canvas') {
+      contextText += '\n\nCapture limitation: WebGPU/WebGL surfaces are unverified and may be black or missing. ' +
+         'Use an OS-level screenshot to verify visible GPU content; renderer readback only verifies rendering.';
+   }
    content.push({ type: 'text', text: contextText });
 
    // Add the image content
