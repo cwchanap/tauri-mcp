@@ -256,6 +256,7 @@ export const TOOLS: ToolDefinition[] = [
       description:
          '[Tauri Apps Only] Screenshot a running Tauri app\'s webview. ' +
          'Requires active driver_session. Defaults to the visible viewport; mode "window" uses macOS OS capture for GPU content. ' +
+         'Use canvasCapture with an app-provided renderer readback script to reconstruct GPU content and HTML without OS capture. ' +
          MULTI_APP_DESC + ' ' +
          'For browser screenshots, use Chrome DevTools MCP instead. ' +
          'For Electron apps, this will NOT work.',
@@ -278,6 +279,7 @@ export const TOOLS: ToolDefinition[] = [
             appIdentifier: parsed.appIdentifier,
             maxWidth: parsed.maxWidth,
             allowScreenCapture: parsed.allowScreenCapture,
+            canvasCapture: parsed.canvasCapture,
          });
 
          // If saved to file, return text confirmation

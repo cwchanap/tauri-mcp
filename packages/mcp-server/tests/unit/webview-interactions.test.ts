@@ -5,8 +5,11 @@ import { join } from 'node:path';
 import * as webviewExecutor from '../../src/driver/webview-executor';
 
 // Mock the webview-executor module
-vi.mock('../../src/driver/webview-executor', () => {
+vi.mock('../../src/driver/webview-executor', async (importOriginal) => {
+   const original = await importOriginal<typeof import('../../src/driver/webview-executor')>();
+
    return {
+      ...original,
       executeInWebview: vi.fn(),
       executeInWebviewWithContext: vi.fn().mockResolvedValue({
          result: '4',

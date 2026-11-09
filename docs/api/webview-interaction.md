@@ -92,6 +92,7 @@ Capture a screenshot of the current viewport (visible area) of the webview.
 | `maxWidth` | number | No | Maximum width in pixels. Images wider than this will be scaled down proportionally |
 | `allowScreenCapture` | boolean | No | Allow an interactive OS screen-sharing prompt if native and html2canvas capture fail (default: false) |
 | `mode` | `webview` or `window` | No | `webview` captures the viewport (default); `window` explicitly captures the selected macOS window through the OS, including its frame |
+| `canvasCapture` | object | No | Reconstruct one renderer canvas and the HTML HUD without OS capture; `{selector, script}` as described below. Requires `mode: "webview"` |
 
 ### Example
 
@@ -127,6 +128,31 @@ Capture a screenshot of the current viewport (visible area) of the webview.
 Returns a base64-encoded image, or if `filePath` is provided, returns the path where the screenshot was saved.
 
 Native WebView snapshots and the html2canvas fallback do not verify GPU surface capture. WebGPU/WebGL canvases can appear black or empty even when the renderer produced a frame. These responses include a capture limitation, including when saving to a file. Compare with an OS-level screenshot to verify visible presentation; renderer readback alone only verifies rendering. WebKit tracks a related hardware-accelerated snapshot limitation in [bug 198107](https://bugs.webkit.org/show_bug.cgi?id=198107).
+
+### Renderer capture without OS access
+
+If the app exposes renderer readback, supply `canvasCapture` to bypass native snapshots and combine those pixels with the HTML UI. For Caelum's development/test runtime:
+
+```json
+{
+  "tool": "webview_screenshot",
+  "windowId": "main",
+  "format": "png",
+  "maxWidth": 1280,
+  "canvasCapture": {
+    "selector": "canvas",
+    "script": "return await window.__caelumRuntime.debugCaptureFrame();"
+  }
+}
+```
+
+`selector` must match exactly one canvas. `script` is an async JavaScript body executed in the selected WebView. It must return `{width, height, pixels}`, with positive integer dimensions matching the canvas's backing size. Pixels must be a `Uint8Array`, `Uint8ClampedArray`, or array of integer bytes: tightly packed RGBA8 rows, top-left first, with no row padding. The app must normalize GPU channel order before returning pixels. The script should only read renderer state.
+
+The server validates the result and replaces the canvas pixels only in html2canvas's cloned document, leaving the live canvas unchanged. PNG/JPEG, quality, `maxWidth`, window/app targeting and file output apply. For this path the default width comes from the MCP server's `TAURI_MCP_SCREENSHOT_MAX_WIDTH` environment variable.
+
+This path needs no Screen Recording permission and never falls back to native or OS capture, even if `allowScreenCapture` is true. A missing hook, invalid readback or failed composition returns an error. Other GPU canvases are not covered. The result is a reconstruction of renderer output and HTML; it does not prove native on-screen presentation. Locked-screen, sleeping and background GPU operation remain unverified. Caelum's hook must be available in the running build; the MCP server does not add it to production builds.
+
+### OS window capture
 
 For a GPU scene that renders normally on screen but is missing from the WebView snapshot, request OS window capture explicitly:
 
