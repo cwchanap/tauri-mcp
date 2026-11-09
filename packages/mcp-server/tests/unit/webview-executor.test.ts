@@ -195,6 +195,45 @@ describe('Webview Executor Unit Tests', () => {
       expect(result.content[1]).toEqual({ type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' });
    });
 
+   it('captures the requested OS window directly when window mode is selected', async () => {
+      const executor = await import('../../src/driver/webview-executor.js');
+
+      mockRegisterScript.mockRejectedValue(new Error('WebView is unavailable'));
+      mockSendCommand
+         .mockResolvedValueOnce({
+            success: true,
+            data: 'data:image/png;base64,ZmFrZQ==',
+            windowContext: { windowLabel: 'recording-toolbar', totalWindows: 2 },
+         });
+
+      const result = await executor.captureScreenshot({
+         mode: 'window', windowId: 'recording-toolbar', appIdentifier: 9300, format: 'png', maxWidth: 600,
+      });
+
+      expect(mockSendCommand).toHaveBeenLastCalledWith({
+         command: 'capture_window_screenshot',
+         args: { format: 'png', quality: 80, windowLabel: 'recording-toolbar', maxWidth: 600 },
+      }, 15000);
+      expect(result.content[0]).toEqual({
+         type: 'text', text: expect.stringContaining('OS window capture'),
+      });
+      expect(result.content[1]).toEqual({ type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' });
+      expect(mockRegisterScript).not.toHaveBeenCalled();
+   });
+
+   it('does not fall back to an incomplete WebView snapshot when OS window capture fails', async () => {
+      const executor = await import('../../src/driver/webview-executor.js');
+
+      mockSendCommand
+         .mockResolvedValueOnce({ success: false, error: 'Unknown command: capture_window_screenshot' });
+
+      await expect(executor.captureScreenshot({ mode: 'window', allowScreenCapture: true }))
+         .rejects
+         .toThrow('OS window capture failed: Unknown command: capture_window_screenshot');
+      expect(mockSendCommand).toHaveBeenCalledTimes(1);
+      expect(mockIsScriptRegistered).not.toHaveBeenCalled();
+   });
+
    it('does not request screen-sharing permission without explicit opt-in', async () => {
       const executor = await import('../../src/driver/webview-executor.js');
 

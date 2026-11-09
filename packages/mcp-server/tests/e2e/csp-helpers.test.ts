@@ -17,20 +17,6 @@ describe.skipIf(!process.env.TAURI_MCP_TEST_APP_BINARY)('Packaged WebView helper
    it('executes helpers, captures screenshots and restores scripts when inline tags are blocked', async () => {
       const { client } = resolveTargetApp();
 
-      // about:blank reports readyState 'complete' and has no CSP, and the WebSocket
-      // server accepts before the 'main' window exists — wait for the real document.
-      const ready = expect.poll(async () => {
-         const response = await client.sendCommand({
-            command: 'execute_js',
-            args: {
-               script: 'return document.readyState === "complete" && !!document.getElementById("greet-form")',
-            },
-         });
-
-         return response.success && response.data === true;
-      }, { timeout: 20000 });
-
-      await ready.toBe(true);
       const blockedTag = await client.sendCommand({
          command: 'execute_js',
          args: {
@@ -86,4 +72,39 @@ describe.skipIf(!process.env.TAURI_MCP_TEST_APP_BINARY)('Packaged WebView helper
       await restored.toBe(1);
       expect(await executeInWebview('return window.__MCP__.resolveRef("body").tagName')).toBe('BODY');
    }, 60000);
+
+   it('rejects an unknown window in the OS capture bridge command', async () => {
+      const { client } = resolveTargetApp();
+
+      const response = await client.sendCommand({
+         command: 'capture_window_screenshot',
+         args: { windowLabel: 'missing-capture-window' },
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('Window \'missing-capture-window\' not found');
+   });
+
+   it.skipIf(process.platform !== 'darwin')('captures the OS window or reports OS capture as unavailable', async () => {
+      let result;
+
+      try {
+         result = await captureScreenshot({ mode: 'window', format: 'png', maxWidth: 200 });
+      } catch(error) {
+         expect(error).toBeInstanceOf(Error);
+         expect((error as Error).message).toContain('macOS window capture unavailable');
+         return;
+      }
+
+      expect(result.content[0]).toEqual({ type: 'text', text: expect.stringContaining('OS window capture') });
+      const image = result.content.find((item) => { return item.type === 'image'; });
+
+      expect(image?.type).toBe('image');
+      if (image?.type === 'image') {
+         const bytes = Buffer.from(image.data, 'base64');
+
+         expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+         expect(bytes.readUInt32BE(16)).toBeLessThanOrEqual(200);
+      }
+   }, 20000);
 });

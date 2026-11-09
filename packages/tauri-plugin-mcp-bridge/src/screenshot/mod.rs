@@ -146,6 +146,37 @@ pub async fn capture_viewport_screenshot<R: Runtime>(
     )))]
     return Err(ScreenshotError::PlatformUnsupported);
 
+    encode_screenshot(screenshot, format, quality, max_width)
+}
+
+/// Capture the selected macOS window through the OS, including its frame and GPU layers.
+pub async fn capture_window_screenshot<R: Runtime>(
+    window: &WebviewWindow<R>,
+    format: &str,
+    quality: u8,
+    max_width: Option<u32>,
+) -> Result<String, ScreenshotError> {
+    #[cfg(target_os = "macos")]
+    {
+        let screenshot = macos::capture_window(window).await?;
+        encode_screenshot(screenshot, format, quality, max_width)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (window, format, quality, max_width);
+        Err(ScreenshotError::CaptureFailed(
+            "OS window capture is only supported on macOS".to_string(),
+        ))
+    }
+}
+
+fn encode_screenshot(
+    screenshot: Screenshot,
+    format: &str,
+    quality: u8,
+    max_width: Option<u32>,
+) -> Result<String, ScreenshotError> {
     // Apply max_width constraint if specified (param or env var)
     let effective_max_width = get_effective_max_width(max_width);
     let resized_data = match effective_max_width {

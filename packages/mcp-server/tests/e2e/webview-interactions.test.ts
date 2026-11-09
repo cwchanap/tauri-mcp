@@ -15,7 +15,8 @@ import { getTestAppPort } from '../test-utils';
  * Now uses native Tauri IPC - works on all platforms (Linux, Windows, macOS)!
  */
 describe('Webview Interactions E2E Tests', () => {
-   const TIMEOUT = 10000;
+   const TIMEOUT = 10000,
+         SCREENSHOT_TIMEOUT = 30000; // Native capture can time out and then fall back to JavaScript.
 
    beforeAll(async () => {
       // App is already started globally - connect to the dynamically assigned port
@@ -114,7 +115,7 @@ describe('Webview Interactions E2E Tests', () => {
 
             expect(() => { return Buffer.from(data, 'base64'); }).not.toThrow();
          }
-      }, TIMEOUT);
+      }, SCREENSHOT_TIMEOUT);
 
       it('should resize screenshot when maxWidth is smaller than image width', async () => {
          // Take a screenshot with maxWidth constraint
@@ -145,7 +146,7 @@ describe('Webview Interactions E2E Tests', () => {
                expect(width).toBeLessThanOrEqual(100);
             }
          }
-      }, TIMEOUT);
+      }, SCREENSHOT_TIMEOUT);
 
       it('should not upscale when maxWidth is larger than image width', async () => {
          // First take a screenshot without maxWidth to get original size
@@ -187,7 +188,7 @@ describe('Webview Interactions E2E Tests', () => {
                expect(newWidth).toBe(originalWidth);
             }
          }
-      }, TIMEOUT);
+      }, SCREENSHOT_TIMEOUT * 2);
 
       it('should capture the viewport with a large offscreen DOM', async () => {
          await executeJavaScript({
@@ -231,7 +232,7 @@ describe('Webview Interactions E2E Tests', () => {
                `,
             });
          }
-      }, TIMEOUT);
+      }, SCREENSHOT_TIMEOUT);
    });
 
    describe('Keyboard Interactions', () => {

@@ -319,6 +319,7 @@ async fn handle_capture_screenshot<R: Runtime>(
     app: &AppHandle<R>,
     id: &str,
     args: Option<&Value>,
+    capture_window: bool,
 ) -> Value {
     let format = args
         .and_then(|a| a.get("format"))
@@ -339,9 +340,21 @@ async fn handle_capture_screenshot<R: Runtime>(
 
     match resolve_window_with_context(app, window_label) {
         Ok(resolved) => {
-            match commands::capture_native_screenshot(resolved.window, format, quality, max_width)
+            let result = if capture_window {
+                crate::screenshot::capture_window_screenshot(
+                    &resolved.window,
+                    format.as_deref().unwrap_or("png"),
+                    quality.unwrap_or(90),
+                    max_width,
+                )
                 .await
-            {
+                .map_err(|e| e.to_string())
+            } else {
+                commands::capture_native_screenshot(resolved.window, format, quality, max_width)
+                    .await
+            };
+
+            match result {
                 Ok(data_url) => serde_json::json!({
                     "id": id,
                     "success": true,
@@ -578,7 +591,8 @@ async fn dispatch_command<R: Runtime>(app: &AppHandle<R>, command: &Value) -> Va
                 error_response(id, "Missing args")
             }
         }
-        "capture_native_screenshot" => handle_capture_screenshot(app, id, args).await,
+        "capture_native_screenshot" => handle_capture_screenshot(app, id, args, false).await,
+        "capture_window_screenshot" => handle_capture_screenshot(app, id, args, true).await,
         "resize_window" => {
             if let Some(args) = args {
                 handle_resize_window(app, id, args).await

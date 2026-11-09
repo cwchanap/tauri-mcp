@@ -91,6 +91,7 @@ Capture a screenshot of the current viewport (visible area) of the webview.
 | `windowId` | string | No | Window label to target (defaults to 'main') |
 | `maxWidth` | number | No | Maximum width in pixels. Images wider than this will be scaled down proportionally |
 | `allowScreenCapture` | boolean | No | Allow an interactive OS screen-sharing prompt if native and html2canvas capture fail (default: false) |
+| `mode` | `webview` or `window` | No | `webview` captures the viewport (default); `window` explicitly captures the selected macOS window through the OS, including its frame |
 
 ### Example
 
@@ -127,7 +128,22 @@ Returns a base64-encoded image, or if `filePath` is provided, returns the path w
 
 Native WebView snapshots and the html2canvas fallback do not verify GPU surface capture. WebGPU/WebGL canvases can appear black or empty even when the renderer produced a frame. These responses include a capture limitation, including when saving to a file. Compare with an OS-level screenshot to verify visible presentation; renderer readback alone only verifies rendering. WebKit tracks a related hardware-accelerated snapshot limitation in [bug 198107](https://bugs.webkit.org/show_bug.cgi?id=198107).
 
+For a GPU scene that renders normally on screen but is missing from the WebView snapshot, request OS window capture explicitly:
+
+```json
+{
+  "tool": "webview_screenshot",
+  "mode": "window",
+  "windowId": "main",
+  "format": "png"
+}
+```
+
+This mode requires an updated bridge running on macOS 10.15 or later and [Screen Recording access](https://support.apple.com/en-my/guide/mac-help/mchl592e5686/26/mac/26) for the app or launcher identified by macOS. It checks authorization without opening a permission prompt; enable access in System Settings before retrying. Keep the target window visible for a current frame. It captures only that window, including its frame, and excludes shadows and attached windows; `maxWidth`, image format, and file output still apply. Capture happens on the bridge's machine using the selected native window ID. Temporary images are private and removed after capture. Unsupported platforms, old bridges, denied access, and OS capture errors are reported directly, with no WebView fallback.
+
 The Screen Capture API fallback is disabled by default because it opens an operating-system permission prompt and may share more than the target webview. Set `allowScreenCapture` only when that interactive fallback is desired.
+
+`allowScreenCapture` does not force OS capture: a valid black WebView PNG returns before fallbacks run. Use `mode: "window"` to bypass that path; it does not require `allowScreenCapture`.
 
 ### Environment Variable
 

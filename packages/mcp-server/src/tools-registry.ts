@@ -255,7 +255,7 @@ export const TOOLS: ToolDefinition[] = [
       name: 'webview_screenshot',
       description:
          '[Tauri Apps Only] Screenshot a running Tauri app\'s webview. ' +
-         'Requires active driver_session. Captures only visible viewport. ' +
+         'Requires active driver_session. Defaults to the visible viewport; mode "window" uses macOS OS capture for GPU content. ' +
          MULTI_APP_DESC + ' ' +
          'For browser screenshots, use Chrome DevTools MCP instead. ' +
          'For Electron apps, this will NOT work.',
@@ -270,6 +270,7 @@ export const TOOLS: ToolDefinition[] = [
          const parsed = ScreenshotSchema.parse(args);
 
          const result = await screenshot({
+            mode: parsed.mode,
             quality: parsed.quality,
             format: parsed.format,
             windowId: parsed.windowId,

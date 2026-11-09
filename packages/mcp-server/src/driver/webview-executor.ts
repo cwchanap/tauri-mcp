@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { hasActiveSession, getDefaultSession, resolveTargetApp, manageDriverSession } from './session-manager.js';
 import { createMcpLogger } from '../logger.js';
+import { ensureSessionAndConnect } from './plugin-client.js';
 import {
    buildScreenshotScript,
    buildScreenshotCaptureScript,
@@ -399,6 +400,7 @@ function buildScreenshotResult(dataUrl: string, method: string, windowContext?: 
 }
 
 export interface CaptureScreenshotOptions {
+   mode?: 'webview' | 'window';
    format?: 'png' | 'jpeg';
    quality?: number;
    windowId?: string;
@@ -436,15 +438,53 @@ async function prepareHtml2canvasScript(
    }
 }
 
+/** Capture through the bridge's native viewport or explicit OS window path. */
+async function captureNativeScreenshot(options: CaptureScreenshotOptions): Promise<ScreenshotResult> {
+   const { mode = 'webview', format = 'jpeg', quality = 80, windowId, appIdentifier, maxWidth } = options;
+
+   if (mode !== 'window') {
+      await ensureReady(windowId, appIdentifier);
+   }
+
+   const client = await ensureSessionAndConnect(appIdentifier);
+
+   // Use longer timeout (15s) for native screenshot - the Rust code waits up to 10s
+   const response = await client.sendCommand({
+      command: mode === 'window' ? 'capture_window_screenshot' : 'capture_native_screenshot',
+      args: {
+         format,
+         quality,
+         windowLabel: windowId,
+         maxWidth,
+      },
+   }, 15000);
+
+   if (!response.success || !response.data) {
+      throw new Error(response.error || 'Native screenshot returned invalid data');
+   }
+
+   // The native command returns a base64 data URL
+   const dataUrl = response.data as string;
+
+   if (!dataUrl || !dataUrl.startsWith('data:image/')) {
+      throw new Error('Native screenshot returned invalid data');
+   }
+
+   // Build response with window context
+   const method = mode === 'window' ? 'OS window capture (includes window frame)' : 'native API';
+
+   return buildScreenshotResult(dataUrl, method, response.windowContext);
+}
+
 /**
- * Capture a screenshot of the visible webview viewport.
+ * Capture the WebView viewport, or explicitly capture the selected macOS OS window.
  *
  * @param options - Screenshot options (format, quality, windowId, appIdentifier, etc.)
  * @returns Screenshot result with image content
  */
 export async function captureScreenshot(options: CaptureScreenshotOptions = {}): Promise<ScreenshotResult> {
    const {
-      format = 'jpeg', quality = 80, windowId, appIdentifier, maxWidth, allowScreenCapture = false,
+      format = 'jpeg', quality = 80, windowId, appIdentifier, allowScreenCapture = false,
    } = options;
 
    let nativeErrorMsg = 'Native screenshot unavailable';
@@ -454,41 +494,17 @@ export async function captureScreenshot(options: CaptureScreenshotOptions = {}):
    // - Windows: WebView2 CapturePreview
    // - Linux: Chromium/WebKit screenshot APIs
    try {
-      // Ensure we're fully initialized
-      await ensureReady(windowId, appIdentifier);
-
-      // Resolve target session
-      const session = resolveTargetApp(appIdentifier);
-
-      const client = session.client;
-
-      // Use longer timeout (15s) for native screenshot - the Rust code waits up to 10s
-      const response = await client.sendCommand({
-         command: 'capture_native_screenshot',
-         args: {
-            format,
-            quality,
-            windowLabel: windowId,
-            maxWidth,
-         },
-      }, 15000);
-
-      if (!response.success || !response.data) {
-         throw new Error(response.error || 'Native screenshot returned invalid data');
-      }
-
-      // The native command returns a base64 data URL
-      const dataUrl = response.data as string;
-
-      if (!dataUrl || !dataUrl.startsWith('data:image/')) {
-         throw new Error('Native screenshot returned invalid data');
-      }
-
-      // Build response with window context
-      return buildScreenshotResult(dataUrl, 'native API', response.windowContext);
+      return await captureNativeScreenshot(options);
    } catch(nativeError: unknown) {
       // Log the native error for debugging, then fall back
       nativeErrorMsg = nativeError instanceof Error ? nativeError.message : String(nativeError);
+
+      if (options.mode === 'window') {
+         throw new Error(
+            `OS window capture failed: ${nativeErrorMsg}. ` +
+            'This mode requires an updated macOS bridge and Screen Recording access. No WebView fallback was attempted.'
+         );
+      }
 
       driverLogger.error(`Native screenshot failed: ${nativeErrorMsg}, falling back to html2canvas`);
    }
@@ -612,6 +628,9 @@ export const GetConsoleLogsSchema = z.object({
 });
 
 export const CaptureScreenshotSchema = z.object({
+   mode: z.enum([ 'webview', 'window' ]).optional().default('webview').describe(
+      'webview: viewport snapshot; window: opt-in macOS OS window capture, including frame, for GPU content'
+   ),
    format: z.enum([ 'png', 'jpeg' ]).optional().default('jpeg').describe('Image format'),
    quality: z.number().min(0).max(100).optional().describe('JPEG quality (0-100)'),
    allowScreenCapture: z.boolean().optional().default(false).describe(
