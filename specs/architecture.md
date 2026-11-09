@@ -102,6 +102,10 @@ Inline scripts execute through native WebView evaluation so an application's Con
 
 The test app uses a restrictive CSP. To test it on the packaged origin (development mode does not enforce the same policy), build the frontend with `npm run build`, then build a debug binary with `cargo build --manifest-path packages/test-app/src-tauri/Cargo.toml --features tauri/custom-protocol`. Run `TAURI_MCP_TEST_APP_BINARY=/absolute/path/to/packages/test-app/src-tauri/target/debug/test-app npm run test:e2e -w @hypothesi/tauri-mcp-server -- tests/e2e/csp-helpers.test.ts`. The macOS CI job runs this regression.
 
+## Explicit OS window screenshots
+
+The screenshot tool's default mode captures the WebView viewport. `mode: "window"` uses the active driver connection without JavaScript/helper initialization, then sends the distinct `capture_window_screenshot` WebSocket command so older bridges fail explicitly instead of silently returning a viewport image. On macOS the bridge checks capture authorization without prompting, obtains its selected window's native ID and invokes `/usr/sbin/screencapture` for that window, then reuses the screenshot module's encoding and resizing. No executable path or OS window ID is supplied by the MCP client. Temporary files are private and cleaned up; permission failures and unsupported platforms do not fall back to WebView rendering. This mode includes the window frame.
+
 ## IPC Monitoring
 
 The plugin can monitor all Tauri IPC events for debugging and introspection:

@@ -63,6 +63,10 @@ export const InteractSchema = WindowTargetSchema.extend({
 });
 
 export const ScreenshotSchema = WindowTargetSchema.extend({
+   mode: z.enum([ 'webview', 'window' ]).optional().default('webview').describe(
+      'webview: viewport snapshot; window: opt-in macOS OS window capture, including frame, for GPU content. ' +
+      'Window capture requires Screen Recording access and does not fall back to a WebView snapshot.'
+   ),
    format: z.enum([ 'png', 'jpeg' ]).optional().default('jpeg').describe('Image format'),
    quality: z.number().min(0).max(100).optional().default(80).describe('JPEG quality (0-100, only for jpeg format)'),
    filePath: z.string().optional().describe('File path to save the screenshot to instead of returning as base64'),
@@ -223,6 +227,7 @@ async function performSwipe(options: SwipeOptions): Promise<string> {
 }
 
 export interface ScreenshotOptions {
+   mode?: 'webview' | 'window';
    quality?: number;
    format?: 'png' | 'jpeg';
    windowId?: string;
@@ -239,11 +244,11 @@ export interface ScreenshotFileResult {
 }
 
 export async function screenshot(options: ScreenshotOptions = {}): Promise<ScreenshotResult | ScreenshotFileResult> {
-   const { quality, format = 'jpeg', windowId, filePath, appIdentifier, maxWidth, allowScreenCapture } = options;
+   const { mode, quality, format = 'jpeg', windowId, filePath, appIdentifier, maxWidth, allowScreenCapture } = options;
 
    // Use the native screenshot function from webview-executor
    const result = await captureScreenshot({
-      format, quality, windowId, appIdentifier, maxWidth, allowScreenCapture,
+      mode, format, quality, windowId, appIdentifier, maxWidth, allowScreenCapture,
    });
 
    // If filePath is provided, write to file instead of returning base64

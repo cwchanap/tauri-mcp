@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { writeFileSync, unlinkSync, existsSync } from 'fs';
 import path from 'path';
+import { PluginClient } from './src/driver/plugin-client.js';
 
 const TEST_APP_PATH = path.resolve(process.cwd(), '../test-app'),
       TEST_APP_PORT_FILE = path.resolve(process.cwd(), '.test-app-port');
@@ -55,11 +56,8 @@ async function startGlobalTestApp(): Promise<void> {
          }
       };
 
-      // The MCP bridge plugin only initializes after Tauri loads the webview,
-      // which only happens once Vite (beforeDevCommand) is reachable. Treating
-      // pluginReady as the single source of truth avoids a CI race where
-      // Vite's "Local:" output is buffered by the Tauri CLI and never reaches
-      // this listener, even though the app itself starts successfully.
+      // Vite's output can be buffered by the Tauri CLI. Wait for the bridge's
+      // listening message here; setup separately waits for the fixture document.
       tauriProcess.stdout.on('data', (data) => {
          const output = data.toString();
 
@@ -79,7 +77,6 @@ async function startGlobalTestApp(): Promise<void> {
             pluginReady = true;
             startupSettled = true;
             clearTimeout(startupTimer);
-            console.log('✅ Global test environment ready!');
             resolve();
          }
       });
@@ -147,6 +144,49 @@ function stopGlobalTestApp(): void {
 
 export async function setup(): Promise<void> {
    await startGlobalTestApp();
+
+   if (testAppPort === null) {
+      stopGlobalTestApp();
+      throw new Error('Test app did not report its bridge port');
+   }
+
+   const client = new PluginClient('localhost', testAppPort);
+
+   try {
+      await client.connect();
+      const start = Date.now();
+
+      let lastProbeError = 'document is still loading';
+
+      // The socket can accept before the window exists; about:blank is also "complete".
+      while (Date.now() - start < STARTUP_TIMEOUT_MS) {
+         try {
+            const response = await client.sendCommand({
+               command: 'execute_js',
+               args: { script: 'return document.readyState === "complete" && !!document.getElementById("greet-form")' },
+            }, 2000);
+
+            if (response.success && response.data === true) {
+               break;
+            }
+         } catch(error) {
+            // Navigation can drop an IPC callback before the real page initializes.
+            lastProbeError = error instanceof Error ? error.message : String(error);
+         }
+         await new Promise((resolve) => { setTimeout(resolve, 50); });
+      }
+
+      if (Date.now() - start >= STARTUP_TIMEOUT_MS) {
+         throw new Error(`Test app document did not become ready before the startup timeout: ${lastProbeError}`);
+      }
+   } catch(error) {
+      stopGlobalTestApp();
+      throw error;
+   } finally {
+      await client.disconnect();
+   }
+
+   console.log('✅ Global test environment ready!');
 
    // Write port to file so tests can read it (global vars don't work across processes)
    if (testAppPort) {
