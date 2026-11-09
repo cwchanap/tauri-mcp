@@ -17,14 +17,18 @@ describe.skipIf(!process.env.TAURI_MCP_TEST_APP_BINARY)('Packaged WebView helper
    it('executes helpers, captures screenshots and restores scripts when inline tags are blocked', async () => {
       const { client } = resolveTargetApp();
 
+      // about:blank reports readyState 'complete' and has no CSP, and the WebSocket
+      // server accepts before the 'main' window exists — wait for the real document.
       const ready = expect.poll(async () => {
          const response = await client.sendCommand({
             command: 'execute_js',
-            args: { script: 'return document.readyState === "complete"' },
+            args: {
+               script: 'return document.readyState === "complete" && !!document.getElementById("greet-form")',
+            },
          });
 
          return response.success && response.data === true;
-      });
+      }, { timeout: 20000 });
 
       await ready.toBe(true);
       const blockedTag = await client.sendCommand({
@@ -77,9 +81,9 @@ describe.skipIf(!process.env.TAURI_MCP_TEST_APP_BINARY)('Packaged WebView helper
          });
 
          return response.data;
-      });
+      }, { timeout: 15000 });
 
       await restored.toBe(1);
       expect(await executeInWebview('return window.__MCP__.resolveRef("body").tagName')).toBe('BODY');
-   }, 20000);
+   }, 60000);
 });
