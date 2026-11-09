@@ -281,7 +281,7 @@ export const TOOLS: ToolDefinition[] = [
 
          // If saved to file, return text confirmation
          if ('filePath' in result) {
-            return `Screenshot saved to: ${result.filePath}`;
+            return `Screenshot saved to: ${result.filePath}\n\n${result.context}`;
          }
 
          // Return the content array directly for proper image handling

@@ -98,6 +98,10 @@ pub struct ScriptEntry {
 ### Page Load Re-injection:
 When a page loads, `bridge.js` calls `request_script_injection` to re-inject all registered scripts. This ensures libraries like html2canvas persist across navigations.
 
+Inline scripts execute through native WebView evaluation so an application's Content Security Policy does not block MCP helpers. Inert `application/json` script tags retain the registry's DOM markers for removal and replacement. URL scripts still load through ordinary script elements and remain subject to the page's CSP. SPA navigation retains the document and does not re-run registered scripts.
+
+The test app uses a restrictive CSP. To test it on the packaged origin (development mode does not enforce the same policy), build the frontend with `npm run build`, then build a debug binary with `cargo build --manifest-path packages/test-app/src-tauri/Cargo.toml --features tauri/custom-protocol`. Run `TAURI_MCP_TEST_APP_BINARY=/absolute/path/to/packages/test-app/src-tauri/target/debug/test-app npm run test:e2e -w @hypothesi/tauri-mcp-server -- tests/e2e/csp-helpers.test.ts`. The macOS CI job runs this regression.
+
 ## IPC Monitoring
 
 The plugin can monitor all Tauri IPC events for debugging and introspection:

@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as webviewExecutor from '../../src/driver/webview-executor';
 
 // Mock the webview-executor module
@@ -106,6 +109,27 @@ describe('Webview Interactions Unit Tests', () => {
    });
 
    describe('Function Calls', () => {
+      it('preserves capture limitations when saving a screenshot to a file', async () => {
+         const { screenshot } = await import('../../src/driver/webview-interactions');
+
+         const directory = await mkdtemp(join(tmpdir(), 'tauri-screenshot-'));
+
+         vi.mocked(webviewExecutor.captureScreenshot).mockResolvedValue({
+            content: [
+               { type: 'text', text: 'WebGPU/WebGL capture is unverified' },
+               { type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' },
+            ],
+         });
+         try {
+            const result = await screenshot({ filePath: join(directory, 'capture.png'), format: 'png' });
+
+            expect(result).toMatchObject({ context: 'WebGPU/WebGL capture is unverified' });
+            expect(await readFile(join(directory, 'capture.png'), 'utf8')).toBe('fake');
+         } finally {
+            await rm(directory, { recursive: true, force: true });
+         }
+      });
+
       it('should call executeScript when interact is called', async () => {
          const { interact } = await import('../../src/driver/webview-interactions');
 

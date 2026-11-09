@@ -577,52 +577,6 @@
    // =========================================================================
 
    /**
-    * Injects scripts into the DOM. Called by Rust when scripts need to be injected.
-    * @param {Array<{id: string, type: 'inline'|'url', content: string}>} scripts
-    */
-   window.__MCP_INJECT_SCRIPTS__ = function(scripts) {
-      var script;
-
-      if (!Array.isArray(scripts)) {
-         bridgeLogger.error('Invalid scripts array');
-         return;
-      }
-
-      scripts.forEach(function(entry) {
-         if (!entry || !entry.id) {
-            return;
-         }
-
-         // Check if script already exists
-         if (document.querySelector('script[data-mcp-script-id="' + entry.id + '"]')) {
-            bridgeLogger.info('Script already exists:', entry.id);
-            return;
-         }
-
-         script = document.createElement('script');
-
-         script.setAttribute('data-mcp-script-id', entry.id);
-
-         if (entry.type === 'url') {
-            script.src = entry.content;
-            script.async = true;
-            script.onload = function() {
-               bridgeLogger.info('URL script loaded:', entry.id);
-            };
-            script.onerror = function() {
-               bridgeLogger.error('Failed to load URL script:', entry.id);
-            };
-         } else {
-            // Inline script
-            script.textContent = entry.content;
-         }
-
-         document.head.appendChild(script);
-         bridgeLogger.info('Injected script:', entry.id);
-      });
-   };
-
-   /**
     * Removes a script from the DOM by ID.
     * @param {string} scriptId
     */
@@ -653,7 +607,7 @@
     */
    function notifyPageLoaded() {
       // Use Tauri's invoke to request script re-injection.
-      // The plugin responds by calling __MCP_INJECT_SCRIPTS__ with registered scripts.
+      // The plugin evaluates registered scripts through the native WebView API.
       if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
          window.__TAURI__.core.invoke('plugin:mcp-bridge|request_script_injection')
             .catch(function(err) {
@@ -663,10 +617,5 @@
       }
    }
 
-   // Also listen for navigation events to re-inject scripts
-   // This handles SPA-style navigation where the page doesn't fully reload
-   window.addEventListener('popstate', function() {
-      bridgeLogger.info('Navigation detected (popstate)');
-      notifyPageLoaded();
-   });
+   // SPA navigation keeps the same document, so its scripts are already present.
 }());

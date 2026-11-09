@@ -162,13 +162,37 @@ describe('Webview Executor Unit Tests', () => {
       }), 7000);
       expect(result.content[0]).toEqual({
          type: 'text',
-         text: 'Screenshot captured via html2canvas',
+         text: expect.stringContaining('WebGPU/WebGL'),
       });
       expect(result.content[1]).toEqual({
          type: 'image',
          data: 'ZmFrZQ==',
          mimeType: 'image/png',
       });
+   });
+
+   it('reports unverified GPU surfaces alongside a successful native screenshot', async () => {
+      const executor = await import('../../src/driver/webview-executor.js');
+
+      mockSendCommand
+         .mockResolvedValueOnce({ success: true, data: true })
+         .mockResolvedValueOnce({
+            success: true,
+            data: 'data:image/png;base64,ZmFrZQ==',
+            windowContext: { windowLabel: 'main', totalWindows: 2, warning: 'Multiple windows open' },
+         });
+
+      const result = await executor.captureScreenshot();
+
+      expect(result.content[0]).toEqual({
+         type: 'text',
+         text: expect.stringContaining('WebGPU/WebGL'),
+      });
+      expect(result.content[0]).toEqual({
+         type: 'text',
+         text: expect.stringContaining('Multiple windows open'),
+      });
+      expect(result.content[1]).toEqual({ type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' });
    });
 
    it('does not request screen-sharing permission without explicit opt-in', async () => {
