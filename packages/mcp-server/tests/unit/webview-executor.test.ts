@@ -8,8 +8,6 @@ const mockIsConnected = vi.fn(() => { return true; });
 
 const mockRegisterScript = vi.fn();
 
-const mockIsScriptRegistered = vi.fn();
-
 const mockHasActiveSession = vi.fn(() => { return true; });
 
 const mockResolveTargetApp = vi.fn();
@@ -17,7 +15,6 @@ const mockResolveTargetApp = vi.fn();
 vi.mock('../../src/driver/script-manager.js', () => {
    return {
       registerScript: mockRegisterScript,
-      isScriptRegistered: mockIsScriptRegistered,
    };
 });
 
@@ -70,7 +67,6 @@ describe('Webview Executor Unit Tests', () => {
       mockIsConnected.mockReturnValue(true);
       mockConnect.mockResolvedValue(undefined);
       mockRegisterScript.mockResolvedValue({ registered: true, scriptId: 'test-script' });
-      mockIsScriptRegistered.mockResolvedValue(false);
    });
 
    it('registers the resolve-ref helper in the requested window during initialization', async () => {
@@ -231,7 +227,36 @@ describe('Webview Executor Unit Tests', () => {
          .rejects
          .toThrow('OS window capture failed: Unknown command: capture_window_screenshot');
       expect(mockSendCommand).toHaveBeenCalledTimes(1);
-      expect(mockIsScriptRegistered).not.toHaveBeenCalled();
+   });
+
+   it('bypasses native capture for renderer readback and never requests screen sharing after failure', async () => {
+      const executor = await import('../../src/driver/webview-executor.js');
+
+      mockSendCommand
+         .mockResolvedValueOnce({ success: true, data: true })
+         .mockResolvedValueOnce({ success: false, error: 'Renderer unavailable' })
+         .mockResolvedValue({ success: true, data: 'data:image/png;base64,ZmFrZQ==' });
+
+      const capture = executor.captureScreenshot({
+         allowScreenCapture: true,
+         canvasCapture: { selector: '#map', script: 'throw new Error("Renderer unavailable")' },
+      });
+
+      await expect(capture).rejects.toThrow('Renderer unavailable');
+      expect(mockSendCommand).toHaveBeenCalledTimes(2);
+      expect(mockSendCommand.mock.calls.every(([ command ]) => { return command.command === 'execute_js'; })).toBe(true);
+   });
+
+   it('rejects renderer readback combined with OS window mode before capturing', async () => {
+      const executor = await import('../../src/driver/webview-executor.js');
+
+      mockSendCommand.mockResolvedValue({ success: true, data: 'data:image/png;base64,ZmFrZQ==' });
+      const capture = executor.captureScreenshot({
+         mode: 'window', canvasCapture: { selector: '#map', script: 'return null;' },
+      });
+
+      await expect(capture).rejects.toThrow('canvasCapture requires mode "webview"');
+      expect(mockSendCommand).not.toHaveBeenCalled();
    });
 
    it('does not request screen-sharing permission without explicit opt-in', async () => {

@@ -8,8 +8,9 @@ import {
    buildScreenshotCaptureScript,
    getHtml2CanvasSource,
    HTML2CANVAS_SCRIPT_ID,
+   CanvasCaptureOptions,
 } from './scripts/html2canvas-loader.js';
-import { registerScript, isScriptRegistered } from './script-manager.js';
+import { registerScript } from './script-manager.js';
 import { getResolveRefSource, RESOLVE_REF_SCRIPT_ID } from './scripts/index.js';
 
 /**
@@ -387,6 +388,10 @@ function buildScreenshotResult(dataUrl: string, method: string, windowContext?: 
       contextText += '\n\nCapture limitation: WebGPU/WebGL surfaces are unverified and may be black or missing. ' +
          'Use an OS-level screenshot to verify visible GPU content; renderer readback only verifies rendering.';
    }
+   if (method === 'renderer readback + html2canvas') {
+      contextText += '\n\nReconstructed from supplied renderer pixels and HTML. ' +
+         'Native presentation and other GPU canvases are unverified.';
+   }
    content.push({ type: 'text', text: contextText });
 
    // Add the image content
@@ -399,6 +404,13 @@ function buildScreenshotResult(dataUrl: string, method: string, windowContext?: 
    return { content };
 }
 
+export const CanvasCaptureSchema = z.object({
+   selector: z.string().min(1).describe('CSS selector matching exactly one canvas'),
+   script: z.string().min(1).describe(
+      'Async JavaScript body returning {width, height, pixels}: row-tight RGBA8 bytes, top-left origin, matching canvas dimensions'
+   ),
+});
+
 export interface CaptureScreenshotOptions {
    mode?: 'webview' | 'window';
    format?: 'png' | 'jpeg';
@@ -407,6 +419,7 @@ export interface CaptureScreenshotOptions {
    appIdentifier?: string | number;
    maxWidth?: number;
    allowScreenCapture?: boolean;
+   canvasCapture?: CanvasCaptureOptions;
 }
 
 /**
@@ -417,24 +430,20 @@ async function prepareHtml2canvasScript(
    format: 'png' | 'jpeg',
    quality: number,
    windowId?: string,
-   appIdentifier?: string | number
+   appIdentifier?: string | number,
+   captureOptions: { canvasCapture?: CanvasCaptureOptions; maxWidth?: number } = {}
 ): Promise<string> {
    try {
-      // Check if html2canvas is already registered
-      const isRegistered = await isScriptRegistered(HTML2CANVAS_SCRIPT_ID, appIdentifier);
+      // The registry is app-wide; ensure the library also exists in this window.
+      const html2canvasSource = `if (typeof globalThis.html2canvas !== 'function') {\n${getHtml2CanvasSource()}\n}`;
 
-      if (!isRegistered) {
-         // Register html2canvas via script manager for persistence across navigations
-         const html2canvasSource = getHtml2CanvasSource();
-
-         await registerScript(HTML2CANVAS_SCRIPT_ID, 'inline', html2canvasSource, windowId, appIdentifier);
-      }
+      await registerScript(HTML2CANVAS_SCRIPT_ID, 'inline', html2canvasSource, windowId, appIdentifier);
 
       // Use the capture-only script since html2canvas is now registered
-      return buildScreenshotCaptureScript(format, quality);
+      return buildScreenshotCaptureScript(format, quality, captureOptions);
    } catch{
       // Script manager not available, fall back to inline injection
-      return buildScreenshotScript(format, quality);
+      return buildScreenshotScript(format, quality, captureOptions);
    }
 }
 
@@ -476,6 +485,33 @@ async function captureNativeScreenshot(options: CaptureScreenshotOptions): Promi
    return buildScreenshotResult(dataUrl, method, response.windowContext);
 }
 
+/** Reconstruct the viewport from an explicit renderer hook without capture fallbacks. */
+async function captureRendererScreenshot(options: CaptureScreenshotOptions): Promise<ScreenshotResult> {
+   const { format = 'jpeg', quality = 80, windowId, appIdentifier } = options;
+
+   if (options.mode === 'window') {
+      throw new Error('canvasCapture requires mode "webview"');
+   }
+   const canvasCapture = CanvasCaptureSchema.parse(options.canvasCapture);
+
+   // eslint-disable-next-line no-process-env
+   const configuredMaxWidth = options.maxWidth ?? Number(process.env.TAURI_MCP_SCREENSHOT_MAX_WIDTH);
+
+   const maxWidth = Number.isSafeInteger(configuredMaxWidth) && configuredMaxWidth > 0 ? configuredMaxWidth : undefined;
+
+   const script = await prepareHtml2canvasScript(format, quality, windowId, appIdentifier, { canvasCapture, maxWidth });
+
+   try {
+      const result = await executeAsyncInWebview(script, windowId, 10000, appIdentifier);
+
+      return buildScreenshotResult(result, 'renderer readback + html2canvas');
+   } catch(error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      throw new Error(`Renderer screenshot failed: ${message}. No native or OS capture fallback was attempted.`);
+   }
+}
+
 /**
  * Capture the WebView viewport, or explicitly capture the selected macOS OS window.
  *
@@ -486,6 +522,10 @@ export async function captureScreenshot(options: CaptureScreenshotOptions = {}):
    const {
       format = 'jpeg', quality = 80, windowId, appIdentifier, allowScreenCapture = false,
    } = options;
+
+   if (options.canvasCapture) {
+      return captureRendererScreenshot(options);
+   }
 
    let nativeErrorMsg = 'Native screenshot unavailable';
 
@@ -633,6 +673,7 @@ export const CaptureScreenshotSchema = z.object({
    ),
    format: z.enum([ 'png', 'jpeg' ]).optional().default('jpeg').describe('Image format'),
    quality: z.number().min(0).max(100).optional().describe('JPEG quality (0-100)'),
+   canvasCapture: CanvasCaptureSchema.optional(),
    allowScreenCapture: z.boolean().optional().default(false).describe(
       'Allow the Screen Capture API fallback, which opens an interactive OS permission prompt'
    ),

@@ -7,6 +7,8 @@ import {
    captureScreenshot,
    getConsoleLogs as getConsoleLogsFromCapture,
    ScreenshotResult,
+   CaptureScreenshotOptions,
+   CanvasCaptureSchema,
 } from './webview-executor.js';
 import { SCRIPTS, buildScript, buildTypeScript, buildKeyEventScript } from './scripts/index.js';
 
@@ -69,6 +71,10 @@ export const ScreenshotSchema = WindowTargetSchema.extend({
    ),
    format: z.enum([ 'png', 'jpeg' ]).optional().default('jpeg').describe('Image format'),
    quality: z.number().min(0).max(100).optional().default(80).describe('JPEG quality (0-100, only for jpeg format)'),
+   canvasCapture: CanvasCaptureSchema.optional().describe(
+      'Reconstruct one renderer canvas and the HTML HUD without native or OS capture. ' +
+      'Requires mode webview and an app-provided readback script; errors do not fall back.'
+   ),
    filePath: z.string().optional().describe('File path to save the screenshot to instead of returning as base64'),
    maxWidth: z.number().int().positive().optional().describe(
       'Maximum width in pixels. Images wider than this will be scaled down proportionally. ' +
@@ -226,15 +232,8 @@ async function performSwipe(options: SwipeOptions): Promise<string> {
    }
 }
 
-export interface ScreenshotOptions {
-   mode?: 'webview' | 'window';
-   quality?: number;
-   format?: 'png' | 'jpeg';
-   windowId?: string;
+export interface ScreenshotOptions extends CaptureScreenshotOptions {
    filePath?: string;
-   appIdentifier?: string | number;
-   maxWidth?: number;
-   allowScreenCapture?: boolean;
 }
 
 export interface ScreenshotFileResult {
@@ -244,12 +243,9 @@ export interface ScreenshotFileResult {
 }
 
 export async function screenshot(options: ScreenshotOptions = {}): Promise<ScreenshotResult | ScreenshotFileResult> {
-   const { mode, quality, format = 'jpeg', windowId, filePath, appIdentifier, maxWidth, allowScreenCapture } = options;
+   const { filePath, format = 'jpeg', ...captureOptions } = options;
 
-   // Use the native screenshot function from webview-executor
-   const result = await captureScreenshot({
-      mode, format, quality, windowId, appIdentifier, maxWidth, allowScreenCapture,
-   });
+   const result = await captureScreenshot({ ...captureOptions, format });
 
    // If filePath is provided, write to file instead of returning base64
    if (filePath) {
