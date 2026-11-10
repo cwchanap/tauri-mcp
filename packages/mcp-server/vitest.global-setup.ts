@@ -27,7 +27,8 @@ async function startGlobalTestApp(): Promise<void> {
       tauriProcess = spawn(testAppBinary || 'npm', testAppBinary ? [] : [ 'run', 'tauri', 'dev' ], {
          cwd: TEST_APP_PATH,
          stdio: 'pipe',
-         shell: true,
+         // The packaged binary runs directly so spaced paths survive; npm needs a shell.
+         shell: !testAppBinary,
          detached: process.platform !== 'win32',
          // eslint-disable-next-line no-process-env
          env: { ...process.env, WEBKIT_DISABLE_COMPOSITING_MODE: '1' },
