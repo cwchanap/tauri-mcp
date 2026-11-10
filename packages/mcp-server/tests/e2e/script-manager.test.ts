@@ -246,7 +246,7 @@ describe('Script Manager E2E Tests', () => {
    });
 
    describe('Script Re-injection', () => {
-      it('should skip scripts whose marker is already in the document', async () => {
+      it('should skip scripts whose marker is already in the document even on bare request', async () => {
          await registerScript(
             'reinject-skip',
             'inline',
@@ -261,24 +261,19 @@ describe('Script Manager E2E Tests', () => {
 
          expect(injected).toBe(true);
 
-         // A repeated page-load request reports which markers are already
-         // present so the plugin does not re-run those scripts.
-         const response = await executeAsyncInWebview(
+         // A repeated page-load request (even without skipIds) must not re-run
+         // scripts whose marker is already present in the document.
+         await executeAsyncInWebview(
             'return JSON.stringify(await window.__TAURI__.core.invoke(' +
-            '"plugin:mcp-bridge|request_script_injection", { skipIds: [\'reinject-skip\'] }));'
+            '"plugin:mcp-bridge|request_script_injection"));'
          );
-
-         const parsed = JSON.parse(response);
-
-         expect(parsed.scriptIds).not.toContain('reinject-skip');
-         expect(parsed.skipped).toBeGreaterThanOrEqual(1);
 
          const count = await executeInWebview('return window.__REINJECT_COUNT__');
 
          expect(parseInt(count, 10)).toBe(1);
       }, TIMEOUT);
 
-      it('should re-inject when the request does not report present markers', async () => {
+      it('should re-inject when the marker is not in the document', async () => {
          await registerScript(
             'reinject-run',
             'inline',
@@ -293,7 +288,12 @@ describe('Script Manager E2E Tests', () => {
 
          expect(injected).toBe(true);
 
-         // A bare request re-injects everything, matching register-replace behavior.
+         // Remove marker to simulate page reload/navigation
+         await executeInWebview(
+            'const marker = document.querySelector(\'script[data-mcp-script-id="reinject-run"]\'); ' +
+            'if (marker) marker.remove();'
+         );
+
          await executeAsyncInWebview(
             'return JSON.stringify(await window.__TAURI__.core.invoke(' +
             '"plugin:mcp-bridge|request_script_injection"));'

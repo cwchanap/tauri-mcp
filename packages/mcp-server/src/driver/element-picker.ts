@@ -12,12 +12,12 @@ import { ensureSessionAndConnect } from './plugin-client.js';
 import { SCRIPTS, buildScript } from './scripts/index.js';
 import { WindowTargetSchema } from './webview-interactions.js';
 import {
-   getHtml2CanvasSource,
+   getWrappedHtml2CanvasSource,
    HTML2CANVAS_SCRIPT_ID,
    HTML2CANVAS_RESOLVER_SCRIPT,
    HTML2CANVAS_OPTIONS_SCRIPT,
 } from './scripts/html2canvas-loader.js';
-import { registerScript, isScriptRegistered } from './script-manager.js';
+import { ensureScriptLoadedInTarget } from './script-manager.js';
 import type { ToolContent } from '../tools-registry.js';
 import type { ElementMetadata, ElementPickerBroadcast } from './protocol.js';
 
@@ -137,15 +137,15 @@ async function captureElementScreenshot(
    windowId?: string,
    appIdentifier?: string | number
 ): Promise<ToolContent | null> {
-   // Ensure html2canvas is loaded in the webview
+   // Ensure html2canvas is loaded in the target webview window
    try {
-      const isRegistered = await isScriptRegistered(HTML2CANVAS_SCRIPT_ID, appIdentifier);
-
-      if (!isRegistered) {
-         const source = getHtml2CanvasSource();
-
-         await registerScript(HTML2CANVAS_SCRIPT_ID, 'inline', source, windowId, appIdentifier);
-      }
+      await ensureScriptLoadedInTarget(
+         HTML2CANVAS_SCRIPT_ID,
+         'inline',
+         getWrappedHtml2CanvasSource(),
+         windowId,
+         appIdentifier
+      );
    } catch{
       // Script manager unavailable — we'll inline the library in the capture script
    }

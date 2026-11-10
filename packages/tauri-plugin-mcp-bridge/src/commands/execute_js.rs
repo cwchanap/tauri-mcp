@@ -19,6 +19,7 @@ pub async fn execute_js<R: Runtime>(
     window: WebviewWindow<R>,
     script: String,
     state: State<'_, ScriptExecutor>,
+    timeout_ms: Option<u64>,
 ) -> Result<Value, String> {
     // Try native evaluation first (macOS), fall back to eval + IPC
     #[cfg(target_os = "macos")]
@@ -42,7 +43,7 @@ pub async fn execute_js<R: Runtime>(
         );
 
         if should_use_native_evaluation(&script) {
-            match native_evaluate_js(&window, &wrapped_script) {
+            match native_evaluate_js(&window, &wrapped_script, timeout_ms) {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     mcp_log_error(
@@ -55,7 +56,7 @@ pub async fn execute_js<R: Runtime>(
     }
 
     // Fallback: eval + event listener approach
-    eval_with_ipc_callback(&window, &script, &state).await
+    eval_with_ipc_callback(&window, &script, &state, timeout_ms).await
 }
 
 /// macOS: Use WKWebView's evaluateJavaScript:completionHandler: directly
@@ -64,6 +65,7 @@ pub async fn execute_js<R: Runtime>(
 fn native_evaluate_js<R: Runtime>(
     window: &WebviewWindow<R>,
     script: &str,
+    timeout_ms: Option<u64>,
 ) -> Result<Value, String> {
     use block2::RcBlock;
     use objc2_foundation::{NSError, NSString};
@@ -140,7 +142,8 @@ fn native_evaluate_js<R: Runtime>(
         })
         .map_err(|e| format!("Failed to access webview: {e}"))?;
 
-    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+    let duration = std::time::Duration::from_millis(timeout_ms.unwrap_or(10_000));
+    match rx.recv_timeout(duration) {
         Ok(result) => result,
         Err(_) => Err("Script execution timeout (native)".to_string()),
     }
@@ -182,6 +185,7 @@ async fn eval_with_ipc_callback<R: Runtime>(
     window: &WebviewWindow<R>,
     script: &str,
     state: &State<'_, ScriptExecutor>,
+    timeout_ms: Option<u64>,
 ) -> Result<Value, String> {
     let exec_id = Uuid::new_v4().to_string();
     let (tx, rx) = oneshot::channel();
@@ -295,7 +299,8 @@ async fn eval_with_ipc_callback<R: Runtime>(
         }));
     }
 
-    let result = match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
+    let duration = std::time::Duration::from_millis(timeout_ms.unwrap_or(5_000));
+    let result = match tokio::time::timeout(duration, rx).await {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(_)) => Ok(serde_json::json!({
             "success": false,

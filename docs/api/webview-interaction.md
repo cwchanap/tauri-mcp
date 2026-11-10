@@ -131,7 +131,7 @@ Native WebView snapshots and the html2canvas fallback do not verify GPU surface 
 
 ### Renderer capture without OS access
 
-If the app exposes renderer readback, supply `canvasCapture` to bypass native snapshots and combine those pixels with the HTML UI. For Caelum's development/test runtime:
+If the app exposes renderer readback, supply `canvasCapture` to bypass native snapshots and combine those pixels with the HTML UI. For an app runtime that exposes a debug capture frame hook:
 
 ```json
 {
@@ -141,7 +141,7 @@ If the app exposes renderer readback, supply `canvasCapture` to bypass native sn
   "maxWidth": 1280,
   "canvasCapture": {
     "selector": "canvas",
-    "script": "return await window.__caelumRuntime.debugCaptureFrame();"
+    "script": "return await window.__appRuntime.debugCaptureFrame();"
   }
 }
 ```
@@ -150,7 +150,7 @@ If the app exposes renderer readback, supply `canvasCapture` to bypass native sn
 
 The server validates the result and replaces the canvas pixels only in html2canvas's cloned document, leaving the live canvas unchanged. PNG/JPEG, quality, `maxWidth`, window/app targeting and file output apply. For this path the default width comes from the MCP server's `TAURI_MCP_SCREENSHOT_MAX_WIDTH` environment variable.
 
-This path needs no Screen Recording permission and never falls back to native or OS capture, even if `allowScreenCapture` is true. A missing hook, invalid readback or failed composition returns an error. Other GPU canvases are not covered. The result is a reconstruction of renderer output and HTML; it does not prove native on-screen presentation. Locked-screen, sleeping and background GPU operation remain unverified. Caelum's hook must be available in the running build; the MCP server does not add it to production builds.
+This path needs no Screen Recording permission and never falls back to native or OS capture, even if `allowScreenCapture` is true. A missing hook, invalid readback or failed composition returns an error. Other GPU canvases are not covered. The result is a reconstruction of renderer output and HTML; it does not prove native on-screen presentation. Locked-screen, sleeping and background GPU operation remain unverified. The app's hook must be available in the running build; the MCP server does not add it to production builds.
 
 ### OS window capture
 
@@ -165,7 +165,7 @@ For a GPU scene that renders normally on screen but is missing from the WebView 
 }
 ```
 
-This mode requires an updated bridge running on macOS 10.15 or later and [Screen Recording access](https://support.apple.com/en-my/guide/mac-help/mchl592e5686/26/mac/26) for the app or launcher identified by macOS. It checks authorization without opening a permission prompt; enable access in System Settings before retrying. Keep the target window visible for a current frame. It captures only that window, including its frame, and excludes shadows and attached windows; `maxWidth`, image format, and file output still apply. Capture happens on the bridge's machine using the selected native window ID. Temporary images are private and removed after capture. Unsupported platforms, old bridges, denied access, and OS capture errors are reported directly, with no WebView fallback.
+This mode requires an updated bridge running on macOS 10.15 or later and [Screen Recording access](https://support.apple.com/guide/mac-help/mchl592e5686/mac) for the app or launcher identified by macOS. It checks authorization without opening a permission prompt; enable access in System Settings before retrying. Keep the target window visible for a current frame. It captures only that window, including its frame, and excludes shadows and attached windows; `maxWidth`, image format, and file output still apply. Capture happens on the bridge's machine using the selected native window ID. Temporary images are private and removed after capture. Unsupported platforms, old bridges, denied access, and OS capture errors are reported directly, with no WebView fallback.
 
 The Screen Capture API fallback is disabled by default because it opens an operating-system permission prompt and may share more than the target webview. Set `allowScreenCapture` only when that interactive fallback is desired.
 

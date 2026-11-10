@@ -606,28 +606,15 @@
     * Uses the Tauri event system to communicate with the plugin.
     */
    function notifyPageLoaded() {
-      var presentIds, markers, i, request;
-
       // Use Tauri's invoke to request script re-injection.
       // The plugin evaluates registered scripts through the native WebView API.
-      // Scripts whose marker already exists in this document are skipped so a
-      // repeated request does not re-run inline scripts or reload URL scripts.
+      // Each script checks its own inert marker at evaluation time before running.
       if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
-         presentIds = [];
-         markers = document.querySelectorAll('script[data-mcp-script-id]');
-
-         for (i = 0; i < markers.length; i++) {
-            presentIds.push(markers[i].getAttribute('data-mcp-script-id'));
-         }
-
-         request = window.__TAURI__.core.invoke('plugin:mcp-bridge|request_script_injection', {
-            skipIds: presentIds,
-         });
-
-         request.catch(function(err) {
-            // This command may not exist in older versions, which is fine
-            bridgeLogger.warn('Script injection request:', err.message || 'not available');
-         });
+         window.__TAURI__.core.invoke('plugin:mcp-bridge|request_script_injection')
+            .catch(function(err) {
+               // This command may not exist in older versions, which is fine
+               bridgeLogger.warn('Script injection request:', err.message || 'not available');
+            });
       }
    }
 

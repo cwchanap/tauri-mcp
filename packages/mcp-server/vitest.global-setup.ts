@@ -157,7 +157,8 @@ export async function setup(): Promise<void> {
       await client.connect();
       const start = Date.now();
 
-      let lastProbeError = 'document is still loading';
+      let lastProbeError = 'document is still loading',
+          documentReady = false;
 
       // The socket can accept before the window exists; about:blank is also "complete".
       while (Date.now() - start < STARTUP_TIMEOUT_MS) {
@@ -168,6 +169,7 @@ export async function setup(): Promise<void> {
             }, 2000);
 
             if (response.success && response.data === true) {
+               documentReady = true;
                break;
             }
          } catch(error) {
@@ -177,7 +179,7 @@ export async function setup(): Promise<void> {
          await new Promise((resolve) => { setTimeout(resolve, 50); });
       }
 
-      if (Date.now() - start >= STARTUP_TIMEOUT_MS) {
+      if (!documentReady) {
          throw new Error(`Test app document did not become ready before the startup timeout: ${lastProbeError}`);
       }
    } catch(error) {
