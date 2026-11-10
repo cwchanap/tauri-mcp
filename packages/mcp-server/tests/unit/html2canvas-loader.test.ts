@@ -33,6 +33,23 @@ describe('html2canvas screenshot script', () => {
       expect(script).toContain('removeAttribute(__mcp_markerAttr)');
    });
 
+   it('marks the source canvas only after renderer readback validation succeeds', () => {
+      const script = buildScreenshotCaptureScript('png', 80, {
+         canvasCapture: {
+            selector: 'canvas',
+            script: 'return { width: 1, height: 1, pixels: new Uint8Array(4) };',
+         },
+      });
+
+      const readbackIndex = script.indexOf('new ImageData'),
+            markIndex = script.indexOf('setAttribute(__mcp_markerAttr'),
+            captureIndex = script.indexOf('canvas = await html2canvasFn');
+
+      expect(readbackIndex).toBeGreaterThan(-1);
+      expect(markIndex).toBeGreaterThan(readbackIndex);
+      expect(markIndex).toBeLessThan(captureIndex);
+   });
+
    it('uses AsyncFunction constructor to isolate canvasCapture script scope', () => {
       const script = buildScreenshotCaptureScript('png', 80, {
          canvasCapture: {

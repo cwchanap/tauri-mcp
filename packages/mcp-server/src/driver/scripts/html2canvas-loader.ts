@@ -105,7 +105,6 @@ export function buildScreenshotCaptureScript(format: 'png' | 'jpeg', quality: nu
       }
       const __mcp_sourceCanvas = __mcp_sources[0];
       const __mcp_markerAttr = 'data-mcp-capture-source';
-      __mcp_sourceCanvas.setAttribute(__mcp_markerAttr, 'true');
 
       const __mcp_AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
       const __mcp_frame = await (new __mcp_AsyncFunction(${JSON.stringify(options.canvasCapture.script)}))();
@@ -147,6 +146,7 @@ export function buildScreenshotCaptureScript(format: 'png' | 'jpeg', quality: nu
 
       // Capture the webview
       let canvas;
+      ${options.canvasCapture ? `__mcp_sourceCanvas.setAttribute(__mcp_markerAttr, 'true');` : ''}
       try {
          canvas = await html2canvasFn(element, {
             ...${HTML2CANVAS_OPTIONS_SCRIPT},
