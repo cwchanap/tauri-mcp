@@ -742,6 +742,8 @@ pub(crate) fn inject_script_to_window<R: Runtime>(
 ) -> Result<(), String> {
     let script = match entry.script_type {
         // Native evaluation bypasses page CSP; an executable DOM tag does not.
+        // The registered source runs in its own function body so a leading
+        // directive prologue (e.g. "use strict") still applies to it.
         ScriptType::Inline => format!(
             r#"
             (function() {{
@@ -752,7 +754,9 @@ pub(crate) fn inject_script_to_window<R: Runtime>(
                 script.type = 'application/json';
                 script.setAttribute('data-mcp-script-id', '{}');
                 document.head.appendChild(script);
-                {}
+                (function() {{
+                    {}
+                }}).call(window);
             }})();
             "#,
             entry.id, entry.id, entry.content
