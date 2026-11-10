@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { manageDriverSession } from '../../src/driver/session-manager.js';
-import { executeInWebview } from '../../src/driver/webview-executor.js';
+import { executeInWebview, executeAsyncInWebview } from '../../src/driver/webview-executor.js';
 import { getTestAppPort } from '../test-utils';
 import {
    registerScript,
@@ -242,6 +242,66 @@ describe('Script Manager E2E Tests', () => {
          const exists = await isScriptRegistered('does-not-exist');
 
          expect(exists).toBe(false);
+      }, TIMEOUT);
+   });
+
+   describe('Script Re-injection', () => {
+      it('should skip scripts whose marker is already in the document', async () => {
+         await registerScript(
+            'reinject-skip',
+            'inline',
+            'window.__REINJECT_COUNT__ = (window.__REINJECT_COUNT__ || 0) + 1;'
+         );
+
+         const injected = await waitForCondition(async () => {
+            const count = await executeInWebview('return window.__REINJECT_COUNT__');
+
+            return parseInt(count, 10) === 1;
+         });
+
+         expect(injected).toBe(true);
+
+         // A repeated page-load request reports which markers are already
+         // present so the plugin does not re-run those scripts.
+         const response = await executeAsyncInWebview(
+            'return JSON.stringify(await window.__TAURI__.core.invoke(' +
+            '"plugin:mcp-bridge|request_script_injection", { skipIds: [\'reinject-skip\'] }));'
+         );
+
+         const parsed = JSON.parse(response);
+
+         expect(parsed.scriptIds).not.toContain('reinject-skip');
+         expect(parsed.skipped).toBeGreaterThanOrEqual(1);
+
+         const count = await executeInWebview('return window.__REINJECT_COUNT__');
+
+         expect(parseInt(count, 10)).toBe(1);
+      }, TIMEOUT);
+
+      it('should re-inject when the request does not report present markers', async () => {
+         await registerScript(
+            'reinject-run',
+            'inline',
+            'window.__REINJECT_RUN__ = (window.__REINJECT_RUN__ || 0) + 1;'
+         );
+
+         const injected = await waitForCondition(async () => {
+            const count = await executeInWebview('return window.__REINJECT_RUN__');
+
+            return parseInt(count, 10) === 1;
+         });
+
+         expect(injected).toBe(true);
+
+         // A bare request re-injects everything, matching register-replace behavior.
+         await executeAsyncInWebview(
+            'return JSON.stringify(await window.__TAURI__.core.invoke(' +
+            '"plugin:mcp-bridge|request_script_injection"));'
+         );
+
+         const count = await executeInWebview('return window.__REINJECT_RUN__');
+
+         expect(parseInt(count, 10)).toBe(2);
       }, TIMEOUT);
    });
 
