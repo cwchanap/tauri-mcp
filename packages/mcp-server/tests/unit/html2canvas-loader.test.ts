@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildScreenshotCaptureScript } from '../../src/driver/scripts/html2canvas-loader.js';
+import {
+   buildScreenshotCaptureScript,
+   buildScreenshotScript,
+   getWrappedHtml2CanvasSource,
+   HTML2CANVAS_RESOLVER_SCRIPT,
+} from '../../src/driver/scripts/html2canvas-loader.js';
 
 describe('html2canvas screenshot script', () => {
    it('bounds fallback screenshots to the visible viewport', () => {
@@ -13,5 +18,48 @@ describe('html2canvas screenshot script', () => {
       expect(script).toContain('windowWidth: viewportWidth');
       expect(script).toContain('windowHeight: viewportHeight');
       expect(script).not.toContain('Capture the entire document');
+   });
+
+   it('tags source canvas with an attribute and looks up the clone by attribute', () => {
+      const script = buildScreenshotCaptureScript('png', 80, {
+         canvasCapture: {
+            selector: 'canvas:nth-child(2)',
+            script: 'return { width: 10, height: 10, pixels: new Uint8Array(400) };',
+         },
+      });
+
+      expect(script).toContain('setAttribute(__mcp_markerAttr, \'true\')');
+      expect(script).toContain('clonedDocument.querySelector(\'[\' + __mcp_markerAttr + \']\')');
+      expect(script).toContain('removeAttribute(__mcp_markerAttr)');
+   });
+
+   it('uses AsyncFunction constructor to isolate canvasCapture script scope', () => {
+      const script = buildScreenshotCaptureScript('png', 80, {
+         canvasCapture: {
+            selector: 'canvas',
+            script: 'canvas = 1; element = 2; output = 3; return { width: 1, height: 1, pixels: new Uint8Array(4) };',
+         },
+      });
+
+      expect(script).toContain('__mcp_AsyncFunction');
+      expect(script).toContain('Object.getPrototypeOf(async function(){}).constructor');
+   });
+
+   it('prefers bundled html2canvas-pro via __MCP_HTML2CANVAS__ in resolver', () => {
+      expect(HTML2CANVAS_RESOLVER_SCRIPT).toContain('window.__MCP_HTML2CANVAS__');
+      expect(HTML2CANVAS_RESOLVER_SCRIPT).toContain('globalThis.__MCP_HTML2CANVAS__');
+   });
+
+   it('wrapped html2canvas source exposes __MCP_HTML2CANVAS__ without overwriting app html2canvas', () => {
+      const wrapped = getWrappedHtml2CanvasSource();
+
+      expect(wrapped).toContain('window.__MCP_HTML2CANVAS__ = window.html2canvas');
+      expect(wrapped).toContain('window.html2canvas = __orig');
+   });
+
+   it('legacy inline screenshot script uses wrapped html2canvas source', () => {
+      const script = buildScreenshotScript('png', 80);
+
+      expect(script).toContain('window.__MCP_HTML2CANVAS__');
    });
 });

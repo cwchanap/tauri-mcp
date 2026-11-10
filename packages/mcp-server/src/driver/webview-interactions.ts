@@ -524,11 +524,7 @@ export async function domSnapshot(options: DomSnapshotOptions): Promise<string> 
 async function ensureAriaApiLoaded(windowId?: string, appIdentifier?: string | number): Promise<void> {
    const { getAriaApiSource, ARIA_API_SCRIPT_ID: ariaApiScriptId } = await import('./scripts/aria-api-loader.js');
 
-   const { registerScript, isScriptRegistered } = await import('./script-manager.js');
+   const { ensureScriptLoadedInTarget } = await import('./script-manager.js');
 
-   if (await isScriptRegistered(ariaApiScriptId, appIdentifier)) {
-      return;
-   }
-
-   await registerScript(ariaApiScriptId, 'inline', getAriaApiSource(), windowId, appIdentifier);
+   await ensureScriptLoadedInTarget(ariaApiScriptId, 'inline', getAriaApiSource(), windowId, appIdentifier);
 }

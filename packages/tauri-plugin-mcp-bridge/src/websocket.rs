@@ -289,11 +289,21 @@ async fn handle_execute_js<R: Runtime>(app: &AppHandle<R>, id: &str, args: &Valu
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    let timeout_ms = args
+        .get("timeout")
+        .or_else(|| args.get("timeoutMs"))
+        .and_then(|v| v.as_u64());
+
     match resolve_window_with_context(app, window_label) {
         Ok(resolved) => {
             let executor_state: tauri::State<'_, ScriptExecutor> = app.state();
-            match commands::execute_js(resolved.window.clone(), script.to_string(), executor_state)
-                .await
+            match commands::execute_js(
+                resolved.window.clone(),
+                script.to_string(),
+                executor_state,
+                timeout_ms,
+            )
+            .await
             {
                 Ok(result) => serde_json::json!({
                     "id": id,
@@ -734,31 +744,24 @@ pub(crate) fn inject_script_to_window<R: Runtime>(
         // Native evaluation bypasses page CSP; an executable DOM tag does not.
         ScriptType::Inline => format!(
             r#"
-            {}
-            ;
             (function() {{
-                var existing = document.querySelector('script[data-mcp-script-id="{}"]');
-                if (existing) {{
-                    existing.remove();
+                if (document.querySelector('script[data-mcp-script-id="{}"]')) {{
+                    return;
                 }}
                 var script = document.createElement('script');
                 script.type = 'application/json';
                 script.setAttribute('data-mcp-script-id', '{}');
-                script.textContent = {};
                 document.head.appendChild(script);
+                {}
             }})();
             "#,
-            entry.content,
-            entry.id,
-            entry.id,
-            serde_json::to_string(&entry.content).unwrap_or_else(|_| "''".to_string())
+            entry.id, entry.id, entry.content
         ),
         ScriptType::Url => format!(
             r#"
             (function() {{
-                var existing = document.querySelector('script[data-mcp-script-id="{}"]');
-                if (existing) {{
-                    existing.remove();
+                if (document.querySelector('script[data-mcp-script-id="{}"]')) {{
+                    return;
                 }}
                 var script = document.createElement('script');
                 script.setAttribute('data-mcp-script-id', '{}');
@@ -788,6 +791,7 @@ fn inject_script_to_webview<R: Runtime>(
 ) -> Result<ScriptOperationResult, String> {
     let resolved = resolve_window_with_context(app, window_label)?;
 
+    remove_script_from_window(&resolved.window, &entry.id)?;
     inject_script_to_window(&resolved.window, entry)?;
 
     Ok(ScriptOperationResult {
@@ -859,25 +863,4 @@ fn clear_scripts_from_webview<R: Runtime>(
     Ok(ScriptOperationResult {
         window_context: resolved.context,
     })
-}
-
-/// Injects all registered scripts into the webview.
-/// Called when a page loads to re-inject persistent scripts.
-pub fn inject_all_scripts<R: Runtime>(
-    app: &AppHandle<R>,
-    window_label: Option<String>,
-) -> Result<usize, String> {
-    let registry: tauri::State<'_, SharedScriptRegistry> = app.state();
-    let scripts: Vec<ScriptEntry> = {
-        let reg = registry.lock().unwrap();
-        reg.get_all().iter().map(|e| (*e).clone()).collect()
-    };
-
-    let resolved = resolve_window_with_context(app, window_label)?;
-
-    for entry in &scripts {
-        inject_script_to_window(&resolved.window, entry)?;
-    }
-
-    Ok(scripts.len())
 }

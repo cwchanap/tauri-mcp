@@ -9,6 +9,8 @@
 
 import { ensureSessionAndConnect } from './plugin-client.js';
 
+const targetInjectedScripts = new Set<string>();
+
 /**
  * Type of script to inject.
  */
@@ -115,6 +117,12 @@ export async function removeScript(
       throw new Error(response.error || 'Failed to remove script');
    }
 
+   for (const key of targetInjectedScripts) {
+      if (key.endsWith(`:${id}`)) {
+         targetInjectedScripts.delete(key);
+      }
+   }
+
    return response.data as RemoveScriptResponse;
 }
 
@@ -138,6 +146,8 @@ export async function clearScripts(
    if (!response.success) {
       throw new Error(response.error || 'Failed to clear scripts');
    }
+
+   targetInjectedScripts.clear();
 
    return response.data as ClearScriptsResponse;
 }
@@ -163,7 +173,7 @@ export async function getScripts(appIdentifier?: string | number): Promise<GetSc
 }
 
 /**
- * Checks if a script with the given ID is registered.
+ * Checks if a script with the given ID is registered in the app-wide registry.
  *
  * @param id - The script ID to check
  * @returns Promise resolving to true if the script is registered
@@ -172,4 +182,37 @@ export async function isScriptRegistered(id: string, appIdentifier?: string | nu
    const { scripts } = await getScripts(appIdentifier);
 
    return scripts.some((s) => { return s.id === id; });
+}
+
+/**
+ * Clear the in-memory cache of which scripts have been injected per window.
+ */
+export function resetScriptManagerTargets(): void {
+   targetInjectedScripts.clear();
+}
+
+/**
+ * Ensure a script is registered and injected into the specific target window.
+ * The Rust registry is app-wide, but injection into DOM is per-window.
+ * Caches injection per window to prevent re-sending large script payloads.
+ */
+export async function ensureScriptLoadedInTarget(
+   id: string,
+   type: ScriptType,
+   content: string,
+   windowLabel?: string,
+   appIdentifier?: string | number
+): Promise<void> {
+   const { resolveTargetApp } = await import('./session-manager.js');
+
+   const session = resolveTargetApp(appIdentifier);
+
+   const key = `${session.host}:${session.port}:${windowLabel ?? 'main'}:${id}`;
+
+   if (targetInjectedScripts.has(key)) {
+      return;
+   }
+
+   await registerScript(id, type, content, windowLabel, appIdentifier);
+   targetInjectedScripts.add(key);
 }

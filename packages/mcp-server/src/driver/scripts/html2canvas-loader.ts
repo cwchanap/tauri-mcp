@@ -49,9 +49,31 @@ export function getHtml2CanvasSource(): string {
    return html2canvasProSource;
 }
 
+/**
+ * Get the html2canvas-pro library wrapped to preserve any app-defined window.html2canvas
+ * while exposing the bundled html2canvas-pro as window.__MCP_HTML2CANVAS__.
+ */
+export function getWrappedHtml2CanvasSource(): string {
+   return `(function() {
+      if (typeof window !== 'undefined' && window.__MCP_HTML2CANVAS__) {
+         return;
+      }
+      var __orig = typeof window !== 'undefined' ? window.html2canvas : undefined;
+      ${getHtml2CanvasSource()}
+      if (typeof window !== 'undefined') {
+         window.__MCP_HTML2CANVAS__ = window.html2canvas;
+         if (__orig !== undefined) {
+            window.html2canvas = __orig;
+         }
+      }
+   })();`;
+}
+
 export const HTML2CANVAS_RESOLVER_SCRIPT = `
-      // Get the html2canvas function (may be on window, self, or globalThis)
-      const html2canvasFn = typeof html2canvas !== 'undefined' ? html2canvas :
+      // Prefer MCP's bundled html2canvas-pro (with oklch support)
+      const html2canvasFn = (typeof window !== 'undefined' && window.__MCP_HTML2CANVAS__) ? window.__MCP_HTML2CANVAS__ :
+                           (typeof globalThis !== 'undefined' && globalThis.__MCP_HTML2CANVAS__) ? globalThis.__MCP_HTML2CANVAS__ :
+                           typeof html2canvas !== 'undefined' ? html2canvas :
                            (typeof window !== 'undefined' && window.html2canvas) ? window.html2canvas :
                            (typeof self !== 'undefined' && self.html2canvas) ? self.html2canvas :
                            (typeof globalThis !== 'undefined' && globalThis.html2canvas) ? globalThis.html2canvas : null;
@@ -76,25 +98,32 @@ export const HTML2CANVAS_OPTIONS_SCRIPT = `{
  */
 export function buildScreenshotCaptureScript(format: 'png' | 'jpeg', quality: number, options: DomCaptureOptions = {}): string {
    const readbackScript = options.canvasCapture ? `
-      const captureSelector = ${JSON.stringify(options.canvasCapture.selector)};
-      const sources = document.querySelectorAll(captureSelector);
-      if (sources.length !== 1 || !(sources[0] instanceof HTMLCanvasElement)) {
+      const __mcp_captureSelector = ${JSON.stringify(options.canvasCapture.selector)};
+      const __mcp_sources = document.querySelectorAll(__mcp_captureSelector);
+      if (__mcp_sources.length !== 1 || !(__mcp_sources[0] instanceof HTMLCanvasElement)) {
          throw new Error('canvasCapture selector must match exactly one canvas');
       }
-      const frame = await (async () => { ${options.canvasCapture.script}\n })();
-      if (!frame || !Number.isInteger(frame.width) || !Number.isInteger(frame.height) ||
-          frame.width <= 0 || frame.height <= 0 ||
-          frame.width !== sources[0].width || frame.height !== sources[0].height ||
-          !(Array.isArray(frame.pixels) || frame.pixels instanceof Uint8Array || frame.pixels instanceof Uint8ClampedArray) ||
-          frame.pixels.length !== frame.width * frame.height * 4) {
+      const __mcp_sourceCanvas = __mcp_sources[0];
+      const __mcp_markerAttr = 'data-mcp-capture-source';
+      __mcp_sourceCanvas.setAttribute(__mcp_markerAttr, 'true');
+
+      const __mcp_AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+      const __mcp_frame = await (new __mcp_AsyncFunction(${JSON.stringify(options.canvasCapture.script)}))();
+      if (!__mcp_frame || !Number.isInteger(__mcp_frame.width) || !Number.isInteger(__mcp_frame.height) ||
+          __mcp_frame.width <= 0 || __mcp_frame.height <= 0 ||
+          __mcp_frame.width !== __mcp_sourceCanvas.width || __mcp_frame.height !== __mcp_sourceCanvas.height ||
+          !(Array.isArray(__mcp_frame.pixels) || __mcp_frame.pixels instanceof Uint8Array || __mcp_frame.pixels instanceof Uint8ClampedArray) ||
+          __mcp_frame.pixels.length !== __mcp_frame.width * __mcp_frame.height * 4) {
          throw new Error('canvasCapture must return {width, height, pixels}: RGBA8 matching the source canvas dimensions');
       }
-      for (const value of frame.pixels) {
-         if (!Number.isInteger(value) || value < 0 || value > 255) {
-            throw new Error('canvasCapture pixels must contain RGBA8 bytes (0-255)');
+      if (Array.isArray(__mcp_frame.pixels)) {
+         for (const value of __mcp_frame.pixels) {
+            if (!Number.isInteger(value) || value < 0 || value > 255) {
+               throw new Error('canvasCapture pixels must contain RGBA8 bytes (0-255)');
+            }
          }
       }
-      const capturedImage = new ImageData(new Uint8ClampedArray(frame.pixels), frame.width, frame.height);
+      const capturedImage = new ImageData(new Uint8ClampedArray(__mcp_frame.pixels), __mcp_frame.width, __mcp_frame.height);
    ` : '';
 
    // Note: This script is wrapped by executeAsyncInWebview, so we don't need an IIFE
@@ -117,28 +146,33 @@ export function buildScreenshotCaptureScript(format: 'png' | 'jpeg', quality: nu
       const viewportY = window.scrollY || window.pageYOffset || 0;
 
       // Capture the webview
-      const canvas = await html2canvasFn(element, {
-         ...${HTML2CANVAS_OPTIONS_SCRIPT},
-         x: viewportX,
-         y: viewportY,
-         width: viewportWidth,
-         height: viewportHeight,
-         windowWidth: viewportWidth,
-         windowHeight: viewportHeight,
-         scrollX: viewportX,
-         scrollY: viewportY,
-         ${options.canvasCapture ? `onclone: (clonedDocument) => {
-            const target = clonedDocument.querySelector(captureSelector);
-            if (!target || target.tagName !== 'CANVAS') {
-               throw new Error('canvasCapture cloned canvas is unavailable');
-            }
-            const context = target.getContext('2d');
-            if (!context) {
-               throw new Error('canvasCapture cloned canvas has no 2D context');
-            }
-            context.putImageData(capturedImage, 0, 0);
-         },` : ''}
-      });
+      let canvas;
+      try {
+         canvas = await html2canvasFn(element, {
+            ...${HTML2CANVAS_OPTIONS_SCRIPT},
+            x: viewportX,
+            y: viewportY,
+            width: viewportWidth,
+            height: viewportHeight,
+            windowWidth: viewportWidth,
+            windowHeight: viewportHeight,
+            scrollX: viewportX,
+            scrollY: viewportY,
+            ${options.canvasCapture ? `onclone: (clonedDocument) => {
+               const target = clonedDocument.querySelector('[' + __mcp_markerAttr + ']');
+               if (!target || target.tagName !== 'CANVAS') {
+                  throw new Error('canvasCapture cloned canvas is unavailable');
+               }
+               const context = target.getContext('2d');
+               if (!context) {
+                  throw new Error('canvasCapture cloned canvas has no 2D context');
+               }
+               context.putImageData(capturedImage, 0, 0);
+            },` : ''}
+         });
+      } finally {
+         ${options.canvasCapture ? `__mcp_sourceCanvas.removeAttribute(__mcp_markerAttr);` : ''}
+      }
       if (!canvas) {
          throw new Error('html2canvas returned null canvas');
       }
@@ -173,16 +207,14 @@ export function buildScreenshotCaptureScript(format: 'png' | 'jpeg', quality: nu
  * This is the legacy function that inlines the library - kept for fallback.
  */
 export function buildScreenshotScript(format: 'png' | 'jpeg', quality: number, options: DomCaptureOptions = {}): string {
-   const html2canvas = getHtml2CanvasSource();
+   const html2canvas = getWrappedHtml2CanvasSource();
 
    // Note: This script is wrapped by executeAsyncInWebview, so we don't need an IIFE
    return `
       try {
-         // Inject html2canvas if not already present
-         // The library uses UMD and may set on globalThis, self, or window
-         if (typeof html2canvas === 'undefined') {
+         // Inject html2canvas-pro if not already present
+         if (typeof window !== 'undefined' && !window.__MCP_HTML2CANVAS__) {
             ${html2canvas}
-            // After loading, html2canvas should be on globalThis/self/window
          }
 
          ${buildScreenshotCaptureScript(format, quality, options)}

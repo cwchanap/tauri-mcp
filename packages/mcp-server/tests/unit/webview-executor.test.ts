@@ -10,17 +10,28 @@ const mockRegisterScript = vi.fn();
 
 const mockHasActiveSession = vi.fn(() => { return true; });
 
+const mockManageDriverSession = vi.fn(async () => { return 'Session started'; });
+
 const mockResolveTargetApp = vi.fn();
+
+const mockEnsureScriptLoadedInTarget = vi.fn(async (id, type, content, windowLabel, appIdentifier) => {
+   return mockRegisterScript(id, type, content, windowLabel, appIdentifier);
+});
+
+const mockResetScriptManagerTargets = vi.fn();
 
 vi.mock('../../src/driver/script-manager.js', () => {
    return {
       registerScript: mockRegisterScript,
+      ensureScriptLoadedInTarget: mockEnsureScriptLoadedInTarget,
+      resetScriptManagerTargets: mockResetScriptManagerTargets,
    };
 });
 
 vi.mock('../../src/driver/session-manager.js', () => {
    return {
       hasActiveSession: mockHasActiveSession,
+      manageDriverSession: mockManageDriverSession,
       resolveTargetApp: mockResolveTargetApp,
    };
 });
@@ -155,7 +166,7 @@ describe('Webview Executor Unit Tests', () => {
       expect(mockSendCommand).toHaveBeenNthCalledWith(3, expect.objectContaining({
          command: 'execute_js',
          args: expect.objectContaining({ windowLabel: 'recording-toolbar' }),
-      }), 7000);
+      }), 12000);
       expect(result.content[0]).toEqual({
          type: 'text',
          text: expect.stringContaining('WebGPU/WebGL'),
@@ -215,6 +226,25 @@ describe('Webview Executor Unit Tests', () => {
       });
       expect(result.content[1]).toEqual({ type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' });
       expect(mockRegisterScript).not.toHaveBeenCalled();
+   });
+
+   it('starts a driver session on its own when window mode is selected with no active session', async () => {
+      const executor = await import('../../src/driver/webview-executor.js');
+
+      mockHasActiveSession.mockReturnValueOnce(false).mockReturnValue(true);
+      mockSendCommand.mockResolvedValueOnce({
+         success: true,
+         data: 'data:image/png;base64,ZmFrZQ==',
+         windowContext: { windowLabel: 'recording-toolbar', totalWindows: 1 },
+      });
+
+      const result = await executor.captureScreenshot({
+         mode: 'window',
+         windowId: 'recording-toolbar',
+      });
+
+      expect(mockManageDriverSession).toHaveBeenCalledWith('start');
+      expect(result.content[1]).toEqual({ type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' });
    });
 
    it('does not fall back to an incomplete WebView snapshot when OS window capture fails', async () => {

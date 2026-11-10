@@ -6,11 +6,11 @@ import { ensureSessionAndConnect } from './plugin-client.js';
 import {
    buildScreenshotScript,
    buildScreenshotCaptureScript,
-   getHtml2CanvasSource,
+   getWrappedHtml2CanvasSource,
    HTML2CANVAS_SCRIPT_ID,
    CanvasCaptureOptions,
 } from './scripts/html2canvas-loader.js';
-import { registerScript } from './script-manager.js';
+import { registerScript, ensureScriptLoadedInTarget, resetScriptManagerTargets } from './script-manager.js';
 import { getResolveRefSource, RESOLVE_REF_SCRIPT_ID } from './scripts/index.js';
 
 /**
@@ -32,20 +32,10 @@ const initializedTargets = new Set<string>();
 const driverLogger = createMcpLogger('DRIVER');
 
 /**
- * Ensures the MCP server is fully initialized and ready to use.
- * This is called automatically by all tool functions.
- *
- * Initialization includes:
- * - Verifying an active session exists (via driver_session)
- * - Connecting to the plugin WebSocket using session config
- * - Console capture is already initialized by bridge.js in the Tauri app
- *
- * This function is idempotent - calling it multiple times is safe.
- *
- * @throws Error if no session is active (driver_session must be called first)
+ * Ensures an active driver session exists and connects to the app.
+ * Auto-starts the session if no session is currently active.
  */
-export async function ensureReady(windowId?: string, appIdentifier?: string | number): Promise<void> {
-   // Auto-connect if no active session
+export async function ensureSession(appIdentifier?: string | number): Promise<ReturnType<typeof resolveTargetApp>> {
    if (!hasActiveSession()) {
       const result = await manageDriverSession('start');
 
@@ -61,6 +51,25 @@ export async function ensureReady(windowId?: string, appIdentifier?: string | nu
    if (!session.client.isConnected()) {
       await session.client.connect();
    }
+
+   return session;
+}
+
+/**
+ * Ensures the MCP server is fully initialized and ready to use.
+ * This is called automatically by all tool functions.
+ *
+ * Initialization includes:
+ * - Verifying an active session exists (via driver_session)
+ * - Connecting to the plugin WebSocket using session config
+ * - Console capture is already initialized by bridge.js in the Tauri app
+ *
+ * This function is idempotent - calling it multiple times is safe.
+ *
+ * @throws Error if no session is active (driver_session must be called first)
+ */
+export async function ensureReady(windowId?: string, appIdentifier?: string | number): Promise<void> {
+   const session = await ensureSession(appIdentifier);
 
    const targetKey = `${session.host}:${session.port}:${windowId ?? 'main'}`;
 
@@ -81,6 +90,7 @@ export async function ensureReady(windowId?: string, appIdentifier?: string | nu
  */
 export function resetInitialization(): void {
    initializedTargets.clear();
+   resetScriptManagerTargets();
 }
 
 async function waitForResolveRefHelper(session: ReturnType<typeof getDefaultSession>, windowId?: string): Promise<void> {
@@ -123,10 +133,16 @@ export interface ExecuteInWebviewResult {
  * @param script - JavaScript code to execute in the webview context
  * @param windowId - Optional window label to target (defaults to "main")
  * @param appIdentifier - Optional app identifier to target specific app
+ * @param timeoutMs - Optional execution timeout in milliseconds
  * @returns Result of the script execution with window context
  */
-export async function executeInWebview(script: string, windowId?: string, appIdentifier?: string | number): Promise<string> {
-   const { result } = await executeInWebviewWithContext(script, windowId, appIdentifier);
+export async function executeInWebview(
+   script: string,
+   windowId?: string,
+   appIdentifier?: string | number,
+   timeoutMs?: number
+): Promise<string> {
+   const { result } = await executeInWebviewWithContext(script, windowId, appIdentifier, timeoutMs);
 
    return result;
 }
@@ -137,12 +153,14 @@ export async function executeInWebview(script: string, windowId?: string, appIde
  * @param script - JavaScript code to execute in the webview context
  * @param windowId - Optional window label to target (defaults to "main")
  * @param appIdentifier - Optional app identifier to target specific app
+ * @param timeoutMs - Optional execution timeout in milliseconds
  * @returns Result of the script execution with window context
  */
 export async function executeInWebviewWithContext(
    script: string,
    windowId?: string,
-   appIdentifier?: string | number
+   appIdentifier?: string | number,
+   timeoutMs?: number
 ): Promise<ExecuteInWebviewResult> {
    try {
       // Ensure we're fully initialized
@@ -154,11 +172,19 @@ export async function executeInWebviewWithContext(
       const client = session.client;
 
       // Send script directly - Rust handles wrapping and IPC callbacks.
-      // Use 7s timeout (longer than Rust's 5s) so errors return before Node times out.
+      // Use socket timeout longer than Rust's so errors return before Node times out.
+      const socketTimeout = timeoutMs === undefined ? 7000 : timeoutMs + 2000;
+
+      const args: Record<string, unknown> = { script, windowLabel: windowId };
+
+      if (timeoutMs !== undefined) {
+         args.timeout = timeoutMs;
+      }
+
       const response = await client.sendCommand({
          command: 'execute_js',
-         args: { script, windowLabel: windowId },
-      }, 7000);
+         args,
+      }, socketTimeout);
 
       if (!response.success) {
          throw new Error(response.error || 'Unknown execution error');
@@ -222,7 +248,7 @@ export async function executeAsyncInWebview(
       })();
    `;
 
-   return executeInWebview(wrappedScript, windowId, appIdentifier);
+   return executeInWebview(wrappedScript, windowId, appIdentifier, resolvedTimeout);
 }
 
 // ============================================================================
@@ -434,10 +460,14 @@ async function prepareHtml2canvasScript(
    captureOptions: { canvasCapture?: CanvasCaptureOptions; maxWidth?: number } = {}
 ): Promise<string> {
    try {
-      // The registry is app-wide; ensure the library also exists in this window.
-      const html2canvasSource = `if (typeof globalThis.html2canvas !== 'function') {\n${getHtml2CanvasSource()}\n}`;
-
-      await registerScript(HTML2CANVAS_SCRIPT_ID, 'inline', html2canvasSource, windowId, appIdentifier);
+      // Ensure the bundled html2canvas-pro is loaded into this target window
+      await ensureScriptLoadedInTarget(
+         HTML2CANVAS_SCRIPT_ID,
+         'inline',
+         getWrappedHtml2CanvasSource(),
+         windowId,
+         appIdentifier
+      );
 
       // Use the capture-only script since html2canvas is now registered
       return buildScreenshotCaptureScript(format, quality, captureOptions);
@@ -451,7 +481,9 @@ async function prepareHtml2canvasScript(
 async function captureNativeScreenshot(options: CaptureScreenshotOptions): Promise<ScreenshotResult> {
    const { mode = 'webview', format = 'jpeg', quality = 80, windowId, appIdentifier, maxWidth } = options;
 
-   if (mode !== 'window') {
+   if (mode === 'window') {
+      await ensureSession(appIdentifier);
+   } else {
       await ensureReady(windowId, appIdentifier);
    }
 
@@ -551,7 +583,11 @@ export async function captureScreenshot(options: CaptureScreenshotOptions = {}):
 
    // Fallback 1: Use html2canvas library for high-quality DOM rendering
    // Try to use the script manager to register html2canvas for persistence
-   const html2canvasScript = await prepareHtml2canvasScript(format, quality, windowId, appIdentifier);
+   // eslint-disable-next-line no-process-env
+   const configuredMaxWidth = options.maxWidth ?? Number(process.env.TAURI_MCP_SCREENSHOT_MAX_WIDTH),
+         maxWidth = Number.isSafeInteger(configuredMaxWidth) && configuredMaxWidth > 0 ? configuredMaxWidth : undefined;
+
+   const html2canvasScript = await prepareHtml2canvasScript(format, quality, windowId, appIdentifier, { maxWidth });
 
    // Fallback: Try Screen Capture API if available
    // Note: This script is wrapped by executeAsyncInWebview, so we don't need an IIFE
@@ -665,16 +701,4 @@ export const ExecuteScriptSchema = z.object({
 export const GetConsoleLogsSchema = z.object({
    filter: z.string().optional().describe('Regex or keyword to filter logs'),
    since: z.string().optional().describe('ISO timestamp to filter logs since'),
-});
-
-export const CaptureScreenshotSchema = z.object({
-   mode: z.enum([ 'webview', 'window' ]).optional().default('webview').describe(
-      'webview: viewport snapshot; window: opt-in macOS OS window capture, including frame, for GPU content'
-   ),
-   format: z.enum([ 'png', 'jpeg' ]).optional().default('jpeg').describe('Image format'),
-   quality: z.number().min(0).max(100).optional().describe('JPEG quality (0-100)'),
-   canvasCapture: CanvasCaptureSchema.optional(),
-   allowScreenCapture: z.boolean().optional().default(false).describe(
-      'Allow the Screen Capture API fallback, which opens an interactive OS permission prompt'
-   ),
 });
