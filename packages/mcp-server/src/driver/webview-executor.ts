@@ -6,6 +6,7 @@ import { ensureSessionAndConnect } from './plugin-client.js';
 import {
    buildScreenshotScript,
    buildScreenshotCaptureScript,
+   buildCanvasReadbackScript,
    getWrappedHtml2CanvasSource,
    HTML2CANVAS_SCRIPT_ID,
    CanvasCaptureOptions,
@@ -457,7 +458,7 @@ async function prepareHtml2canvasScript(
    quality: number,
    windowId?: string,
    appIdentifier?: string | number,
-   captureOptions: { canvasCapture?: CanvasCaptureOptions; maxWidth?: number } = {}
+   captureOptions: { canvasSelector?: string; maxWidth?: number } = {}
 ): Promise<string> {
    try {
       // Ensure the bundled html2canvas-pro is loaded into this target window
@@ -531,9 +532,20 @@ async function captureRendererScreenshot(options: CaptureScreenshotOptions): Pro
 
    const maxWidth = Number.isSafeInteger(configuredMaxWidth) && configuredMaxWidth > 0 ? configuredMaxWidth : undefined;
 
-   const script = await prepareHtml2canvasScript(format, quality, windowId, appIdentifier, { canvasCapture, maxWidth });
+   const readbackScript = buildCanvasReadbackScript(canvasCapture);
 
    try {
+      // Native evaluation compiles the readback body directly, so a page CSP
+      // without unsafe-eval cannot refuse it the way in-page AsyncFunction
+      // construction was. The validated frame is stashed on window for the
+      // capture script to consume.
+      await executeAsyncInWebview(readbackScript, windowId, 10000, appIdentifier);
+
+      const script = await prepareHtml2canvasScript(format, quality, windowId, appIdentifier, {
+         canvasSelector: canvasCapture.selector,
+         maxWidth,
+      });
+
       const result = await executeAsyncInWebview(script, windowId, 10000, appIdentifier);
 
       return buildScreenshotResult(result, 'renderer readback + html2canvas');
