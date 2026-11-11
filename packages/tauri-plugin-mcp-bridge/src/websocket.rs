@@ -422,7 +422,7 @@ async fn handle_resize_window<R: Runtime>(app: &AppHandle<R>, id: &str, args: &V
 }
 
 /// Handles the register_script command.
-fn handle_register_script<R: Runtime>(app: &AppHandle<R>, id: &str, args: &Value) -> Value {
+async fn handle_register_script<R: Runtime>(app: &AppHandle<R>, id: &str, args: &Value) -> Value {
     let script_id = args.get("id").and_then(|v| v.as_str());
     let script_type_str = args.get("type").and_then(|v| v.as_str());
     let content = args.get("content").and_then(|v| v.as_str());
@@ -454,7 +454,7 @@ fn handle_register_script<R: Runtime>(app: &AppHandle<R>, id: &str, args: &Value
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    match inject_script_to_webview(app, &entry, window_label) {
+    match inject_script_to_webview(app, &entry, window_label).await {
         Ok(result) => serde_json::json!({
             "id": id,
             "success": true,
@@ -612,7 +612,7 @@ async fn dispatch_command<R: Runtime>(app: &AppHandle<R>, command: &Value) -> Va
         }
         "register_script" => {
             if let Some(args) = args {
-                handle_register_script(app, id, args)
+                handle_register_script(app, id, args).await
             } else {
                 error_response(id, "Missing args for register_script")
             }
@@ -736,33 +736,59 @@ struct ScriptOperationResult {
 }
 
 /// Injects a script into a specific webview window.
-pub(crate) fn inject_script_to_window<R: Runtime>(
+pub(crate) async fn inject_script_to_window<R: Runtime>(
     window: &WebviewWindow<R>,
     entry: &ScriptEntry,
 ) -> Result<(), String> {
-    let script = match entry.script_type {
+    match entry.script_type {
         // Native evaluation bypasses page CSP; an executable DOM tag does not.
-        // The registered source runs in its own function body so a leading
-        // directive prologue (e.g. "use strict") still applies to it.
-        ScriptType::Inline => format!(
-            r#"
-            (function() {{
-                if (document.querySelector('script[data-mcp-script-id="{}"]')) {{
-                    return;
-                }}
-                var script = document.createElement('script');
-                script.type = 'application/json';
-                script.setAttribute('data-mcp-script-id', '{}');
-                document.head.appendChild(script);
+        // The marker gate runs in its own evaluation and reports whether the
+        // source should execute. The registered source is then evaluated as a
+        // top-level program so global-scope declarations and a leading
+        // directive prologue (e.g. "use strict") behave like an executable
+        // script tag, matching pre-CSP semantics.
+        ScriptType::Inline => {
+            let gate = format!(
+                r#"
                 (function() {{
-                    {}
-                }}).call(window);
-            }})();
-            "#,
-            entry.id, entry.id, entry.content
-        ),
-        ScriptType::Url => format!(
-            r#"
+                    if (document.querySelector('script[data-mcp-script-id="{}"]')) {{
+                        return 'skip';
+                    }}
+                    var script = document.createElement('script');
+                    script.type = 'application/json';
+                    script.setAttribute('data-mcp-script-id', '{}');
+                    document.head.appendChild(script);
+                    return 'run';
+                }})()
+                "#,
+                entry.id, entry.id
+            );
+
+            let executor_state: tauri::State<'_, ScriptExecutor> = window.state();
+            let gate_result =
+                commands::execute_js(window.clone(), gate, executor_state, Some(5_000)).await?;
+
+            if gate_result
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                if gate_result.get("data").and_then(|v| v.as_str()) == Some("run") {
+                    window
+                        .eval(&entry.content)
+                        .map_err(|e| format!("Failed to inject script: {e}"))?;
+                }
+            } else {
+                let detail = gate_result
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error");
+                return Err(format!("Failed to check script marker: {detail}"));
+            }
+        }
+        ScriptType::Url => {
+            let script = format!(
+                r#"
             (function() {{
                 if (document.querySelector('script[data-mcp-script-id="{}"]')) {{
                     return;
@@ -774,21 +800,24 @@ pub(crate) fn inject_script_to_window<R: Runtime>(
                 document.head.appendChild(script);
             }})();
             "#,
-            entry.id,
-            entry.id,
-            serde_json::to_string(&entry.content).unwrap_or_else(|_| "''".to_string())
-        ),
-    };
+                entry.id,
+                entry.id,
+                serde_json::to_string(&entry.content).unwrap_or_else(|_| "''".to_string())
+            );
 
-    window
-        .eval(&script)
-        .map_err(|e| format!("Failed to inject script: {e}"))
+            window
+                .eval(&script)
+                .map_err(|e| format!("Failed to inject script: {e}"))?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Injects a script into the webview DOM.
 /// If a script with the same ID already exists, it is removed first.
 /// Returns window context for the response.
-fn inject_script_to_webview<R: Runtime>(
+async fn inject_script_to_webview<R: Runtime>(
     app: &AppHandle<R>,
     entry: &ScriptEntry,
     window_label: Option<String>,
@@ -796,7 +825,7 @@ fn inject_script_to_webview<R: Runtime>(
     let resolved = resolve_window_with_context(app, window_label)?;
 
     remove_script_from_window(&resolved.window, &entry.id)?;
-    inject_script_to_window(&resolved.window, entry)?;
+    inject_script_to_window(&resolved.window, entry).await?;
 
     Ok(ScriptOperationResult {
         window_context: resolved.context,
