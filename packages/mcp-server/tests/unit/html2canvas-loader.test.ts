@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+   buildCanvasReadbackScript,
    buildScreenshotCaptureScript,
    buildScreenshotScript,
    getWrappedHtml2CanvasSource,
@@ -22,10 +23,7 @@ describe('html2canvas screenshot script', () => {
 
    it('tags source canvas with an attribute and looks up the clone by attribute', () => {
       const script = buildScreenshotCaptureScript('png', 80, {
-         canvasCapture: {
-            selector: 'canvas:nth-child(2)',
-            script: 'return { width: 10, height: 10, pixels: new Uint8Array(400) };',
-         },
+         canvasSelector: 'canvas:nth-child(2)',
       });
 
       expect(script).toContain('setAttribute(__mcp_markerAttr, \'true\')');
@@ -33,12 +31,9 @@ describe('html2canvas screenshot script', () => {
       expect(script).toContain('removeAttribute(__mcp_markerAttr)');
    });
 
-   it('marks the source canvas only after renderer readback validation succeeds', () => {
+   it('marks the source canvas only after the renderer frame is consumed', () => {
       const script = buildScreenshotCaptureScript('png', 80, {
-         canvasCapture: {
-            selector: 'canvas',
-            script: 'return { width: 1, height: 1, pixels: new Uint8Array(4) };',
-         },
+         canvasSelector: 'canvas',
       });
 
       const readbackIndex = script.indexOf('new ImageData'),
@@ -50,16 +45,28 @@ describe('html2canvas screenshot script', () => {
       expect(markIndex).toBeLessThan(captureIndex);
    });
 
-   it('uses AsyncFunction constructor to isolate canvasCapture script scope', () => {
-      const script = buildScreenshotCaptureScript('png', 80, {
-         canvasCapture: {
-            selector: 'canvas',
-            script: 'canvas = 1; element = 2; output = 3; return { width: 1, height: 1, pixels: new Uint8Array(4) };',
-         },
+   it('inlines the canvasCapture body in an async closure instead of eval-able constructors', () => {
+      const script = buildCanvasReadbackScript({
+         selector: 'canvas',
+         script: 'canvas = 1; element = 2; output = 3; return { width: 1, height: 1, pixels: new Uint8Array(4) };',
       });
 
-      expect(script).toContain('__mcp_AsyncFunction');
-      expect(script).toContain('Object.getPrototypeOf(async function(){}).constructor');
+      expect(script).not.toContain('AsyncFunction');
+      expect(script).not.toContain('new Function');
+      expect(script).not.toContain('eval(');
+      expect(script).toContain('await (async () => {');
+      expect(script).toContain('canvas = 1; element = 2; output = 3;');
+      expect(script).toContain('window.__MCP_CANVAS_FRAME__ = __mcp_frame');
+   });
+
+   it('reads the stashed renderer frame instead of evaluating a script in the page', () => {
+      const script = buildScreenshotCaptureScript('png', 80, {
+         canvasSelector: 'canvas',
+      });
+
+      expect(script).toContain('window.__MCP_CANVAS_FRAME__');
+      expect(script).not.toContain('AsyncFunction');
+      expect(script).not.toContain('new Function');
    });
 
    it('prefers bundled html2canvas-pro via __MCP_HTML2CANVAS__ in resolver', () => {
