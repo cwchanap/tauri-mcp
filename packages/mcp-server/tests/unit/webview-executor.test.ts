@@ -20,11 +20,14 @@ const mockEnsureScriptLoadedInTarget = vi.fn(async (id, type, content, windowLab
 
 const mockResetScriptManagerTargets = vi.fn();
 
+const mockResetScriptManagerTargetsForTarget = vi.fn();
+
 vi.mock('../../src/driver/script-manager.js', () => {
    return {
       registerScript: mockRegisterScript,
       ensureScriptLoadedInTarget: mockEnsureScriptLoadedInTarget,
       resetScriptManagerTargets: mockResetScriptManagerTargets,
+      resetScriptManagerTargetsForTarget: mockResetScriptManagerTargetsForTarget,
    };
 });
 
@@ -121,6 +124,29 @@ describe('Webview Executor Unit Tests', () => {
          windowLabel: 'recording-toolbar',
          warning: undefined,
       });
+   });
+
+   it('re-registers the resolve-ref helper only after its own target is reset', async () => {
+      const executor = await import('../../src/driver/webview-executor.js');
+
+      executor.resetInitialization();
+
+      mockSendCommand.mockResolvedValue({ success: true, data: true });
+
+      await executor.ensureReady(undefined, 9300);
+      expect(mockRegisterScript).toHaveBeenCalledTimes(1);
+
+      // Resetting a different host:port must not evict this target's marker.
+      executor.resetInitializationForTarget('localhost', 9999);
+      await executor.ensureReady(undefined, 9300);
+      expect(mockRegisterScript).toHaveBeenCalledTimes(1);
+
+      // Resetting this target (e.g. after a reconnect to a restarted app)
+      // forces the helper to be registered again.
+      executor.resetInitializationForTarget('localhost', 9300);
+      await executor.ensureReady(undefined, 9300);
+      expect(mockRegisterScript).toHaveBeenCalledTimes(2);
+      expect(mockResetScriptManagerTargetsForTarget).toHaveBeenCalledWith('localhost', 9300);
    });
 
    it('keeps the requested window for html2canvas fallback screenshots', async () => {

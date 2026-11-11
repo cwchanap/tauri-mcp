@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getCwdHint, getDefaultHost, getDefaultPort } from '../config.js';
 import { AppDiscovery } from './app-discovery.js';
 import { PluginClient } from './plugin-client.js';
-import { resetInitialization } from './webview-executor.js';
+import { resetInitialization, resetInitializationForTarget } from './webview-executor.js';
 import { createMcpLogger } from '../logger.js';
 
 const sessionLogger = createMcpLogger('SESSION');
@@ -415,6 +415,17 @@ async function handleStartAction(host?: string, port?: number): Promise<string> 
    }
 
    const client = new PluginClient(connectedSession.host, connectedSession.port);
+
+   // Cached injected-script and initialization markers are keyed by host:port,
+   // not by app lifetime. Every transport transition (app restart, session
+   // replacement, auto-reconnect) can attach to a fresh process whose script
+   // registry and webview DOM are empty, so drop that target's cached markers.
+   const invalidateTargetCaches = (): void => {
+      resetInitializationForTarget(client.host, client.port);
+   };
+
+   client.on('connected', invalidateTargetCaches);
+   client.on('disconnected', invalidateTargetCaches);
 
    await client.connect();
 
