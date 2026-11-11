@@ -10,7 +10,12 @@ import {
    HTML2CANVAS_SCRIPT_ID,
    CanvasCaptureOptions,
 } from './scripts/html2canvas-loader.js';
-import { registerScript, ensureScriptLoadedInTarget, resetScriptManagerTargets } from './script-manager.js';
+import {
+   registerScript,
+   ensureScriptLoadedInTarget,
+   resetScriptManagerTargets,
+   resetScriptManagerTargetsForTarget,
+} from './script-manager.js';
 import { getResolveRefSource, RESOLVE_REF_SCRIPT_ID } from './scripts/index.js';
 
 /**
@@ -91,6 +96,25 @@ export async function ensureReady(windowId?: string, appIdentifier?: string | nu
 export function resetInitialization(): void {
    initializedTargets.clear();
    resetScriptManagerTargets();
+}
+
+/**
+ * Reset initialization state for a single target (host/port).
+ *
+ * The bridge-side script registry and injected DOM helpers live only as long
+ * as the app process; a reconnect can attach to a restarted process where they
+ * are missing, so cached markers for that target must not survive.
+ */
+export function resetInitializationForTarget(host: string, port: number): void {
+   const prefix = `${host}:${port}:`;
+
+   for (const key of initializedTargets) {
+      if (key.startsWith(prefix)) {
+         initializedTargets.delete(key);
+      }
+   }
+
+   resetScriptManagerTargetsForTarget(host, port);
 }
 
 async function waitForResolveRefHelper(session: ReturnType<typeof getDefaultSession>, windowId?: string): Promise<void> {

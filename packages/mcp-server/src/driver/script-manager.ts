@@ -192,6 +192,23 @@ export function resetScriptManagerTargets(): void {
 }
 
 /**
+ * Clear the in-memory injection cache for a single target (host/port).
+ *
+ * Called when a session's transport drops or reconnects: the far side may be a
+ * restarted app process whose script registry and webview DOM no longer hold
+ * previously registered scripts, so cached keys must not skip re-registration.
+ */
+export function resetScriptManagerTargetsForTarget(host: string, port: number): void {
+   const prefix = `${host}:${port}:`;
+
+   for (const key of targetInjectedScripts) {
+      if (key.startsWith(prefix)) {
+         targetInjectedScripts.delete(key);
+      }
+   }
+}
+
+/**
  * Ensure a script is registered and injected into the specific target window.
  * The Rust registry is app-wide, but injection into DOM is per-window.
  * Caches injection per window to prevent re-sending large script payloads.

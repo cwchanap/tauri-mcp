@@ -7,12 +7,16 @@ const clientMocks = vi.hoisted(() => {
          readonly checkConnection: ReturnType<typeof vi.fn>;
          readonly connect: ReturnType<typeof vi.fn>;
          readonly disconnect: ReturnType<typeof vi.fn>;
+         readonly sentCommands: Array<{ command: string }>;
+         emit(event: string): boolean;
       }>,
    };
 });
 
-vi.mock('../../src/driver/plugin-client.js', () => {
-   class PluginClient {
+vi.mock('../../src/driver/plugin-client.js', async () => {
+   const { EventEmitter } = await import('events');
+
+   class PluginClient extends EventEmitter {
       public readonly host: string;
       public readonly port: number;
 
@@ -26,9 +30,22 @@ vi.mock('../../src/driver/plugin-client.js', () => {
          return result;
       });
 
-      public readonly connect = vi.fn(() => { return Promise.resolve(); });
-      public readonly disconnect = vi.fn();
-      public readonly sendCommand = vi.fn(async () => {
+      public readonly isConnected = vi.fn(() => { return true; });
+
+      public readonly connect = vi.fn(() => {
+         this.emit('connected');
+         return Promise.resolve();
+      });
+
+      public readonly disconnect = vi.fn(() => {
+         this.emit('disconnected');
+      });
+
+      public readonly sentCommands: Array<{ command: string }> = [];
+
+      public readonly sendCommand = vi.fn(async (command: { command: string }) => {
+         this.sentCommands.push(command);
+
          return {
             success: true,
             data: {
@@ -39,13 +56,26 @@ vi.mock('../../src/driver/plugin-client.js', () => {
       });
 
       public constructor(host: string, port: number) {
+         super();
          this.host = host;
          this.port = port;
          clientMocks.instances.push(this);
       }
    }
 
-   return { PluginClient };
+   return {
+      PluginClient,
+      // The session under test always owns the most recently created client.
+      ensureSessionAndConnect: vi.fn(async () => {
+         const client = clientMocks.instances[clientMocks.instances.length - 1];
+
+         if (!client) {
+            throw new Error('No plugin client created');
+         }
+
+         return client;
+      }),
+   };
 });
 
 vi.mock('../../src/driver/app-discovery.js', () => {
@@ -81,6 +111,12 @@ vi.mock('../../src/driver/app-discovery.js', () => {
 
    return { AppDiscovery };
 });
+
+function registerScriptCalls(instanceIndex: number): number {
+   return clientMocks.instances[instanceIndex]?.sentCommands
+      .filter((command) => { return command.command === 'register_script'; })
+      .length ?? 0;
+}
 
 describe('driver session stale recovery', () => {
    beforeEach(() => {
@@ -128,5 +164,50 @@ describe('driver session stale recovery', () => {
       expect(clientMocks.instances).toHaveLength(2);
       expect(clientMocks.instances[0]?.disconnect).toHaveBeenCalledOnce();
       expect(clientMocks.instances[1]?.connect).toHaveBeenCalledOnce();
+   });
+
+   it('re-registers injected helpers when the same client reconnects after a disconnect', async () => {
+      const { manageDriverSession } = await import('../../src/driver/session-manager');
+
+      const { ensureScriptLoadedInTarget } = await import('../../src/driver/script-manager');
+
+      await manageDriverSession('start', 'localhost', 9223);
+
+      await ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+      expect(registerScriptCalls(0)).toBe(1);
+
+      // While the connection stays up, the cached marker skips re-registration.
+      await ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+      expect(registerScriptCalls(0)).toBe(1);
+
+      // The app restarts on the same port: the socket drops ('disconnected')
+      // and auto-reconnect re-emits 'connected'. The restarted bridge has an
+      // empty script registry, so the cached marker must be dropped.
+      clientMocks.instances[0]?.emit('disconnected');
+
+      await ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+      expect(registerScriptCalls(0)).toBe(2);
+   });
+
+   it('re-registers injected helpers after a stale session is replaced on the same port', async () => {
+      const { manageDriverSession } = await import('../../src/driver/session-manager');
+
+      const { ensureScriptLoadedInTarget } = await import('../../src/driver/script-manager');
+
+      await manageDriverSession('start', 'localhost', 9223);
+      await ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+      expect(registerScriptCalls(0)).toBe(1);
+
+      // App dies and restarts on the same port: the cached session fails its
+      // liveness probe and start swaps in a fresh client. The restarted app's
+      // registry is empty, so the injected marker must not survive.
+      clientMocks.healthResults.push(false);
+      await manageDriverSession('start', 'localhost', 9223);
+
+      expect(clientMocks.instances).toHaveLength(2);
+      expect(registerScriptCalls(1)).toBe(0);
+
+      await ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+      expect(registerScriptCalls(1)).toBe(1);
    });
 });
