@@ -48,6 +48,17 @@ describe.skipIf(!process.env.TAURI_MCP_TEST_APP_BINARY)('Packaged WebView helper
       await registerScript('csp-counter', 'inline', 'window.__CSP_COUNT__ = (window.__CSP_COUNT__ || 0) + 1;');
       expect(await executeInWebview('return window.__CSP_COUNT__')).toBe('1');
 
+      await registerScript(
+         'csp-globals',
+         'inline',
+         'var persistedHelper = 42; function persistedFn() { return persistedHelper * 2; }'
+      );
+      expect(await executeInWebview('return window.persistedHelper')).toBe('42');
+      expect(await executeInWebview('return window.persistedFn()')).toBe('84');
+
+      await registerScript('csp-strict-globals', 'inline', '"use strict"; var strictHelper = "strict-ok";');
+      expect(await executeInWebview('return window.strictHelper')).toBe('strict-ok');
+
       const reload = await client.sendCommand({
          command: 'execute_js',
          args: {

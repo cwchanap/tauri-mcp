@@ -29,7 +29,7 @@ pub async fn request_script_injection<R: Runtime>(
     }
 
     for entry in &scripts {
-        crate::websocket::inject_script_to_window(&window, entry)?;
+        crate::websocket::inject_script_to_window(&window, entry).await?;
     }
 
     Ok(serde_json::json!({
