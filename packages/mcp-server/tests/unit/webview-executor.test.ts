@@ -149,6 +149,63 @@ describe('Webview Executor Unit Tests', () => {
       expect(mockResetScriptManagerTargetsForTarget).toHaveBeenCalledWith('localhost', 9300);
    });
 
+   it('shares the resolve-ref registration between concurrent ensureReady calls', async () => {
+      const executor = await import('../../src/driver/webview-executor.js');
+
+      executor.resetInitialization();
+      mockSendCommand.mockResolvedValue({ success: true, data: true });
+
+      let openGate!: () => void;
+
+      const gate = new Promise<void>((resolve) => { openGate = resolve; });
+
+      mockRegisterScript.mockImplementationOnce(async () => {
+         await gate;
+
+         return { registered: true, scriptId: 'x' };
+      });
+
+      const first = executor.ensureReady(undefined, 9300);
+
+      const second = executor.ensureReady(undefined, 9300);
+
+      await vi.waitFor(() => { expect(mockRegisterScript).toHaveBeenCalledTimes(1); });
+      openGate();
+      await Promise.all([ first, second ]);
+
+      expect(mockRegisterScript).toHaveBeenCalledTimes(1);
+   });
+
+   it('re-registers when a target reset lands while ensureReady is in flight', async () => {
+      const executor = await import('../../src/driver/webview-executor.js');
+
+      executor.resetInitialization();
+      mockSendCommand.mockResolvedValue({ success: true, data: true });
+
+      let openGate!: () => void;
+
+      const gate = new Promise<void>((resolve) => { openGate = resolve; });
+
+      mockRegisterScript.mockImplementationOnce(async () => {
+         await gate;
+
+         return { registered: true, scriptId: 'x' };
+      });
+
+      const pending = executor.ensureReady(undefined, 9300);
+
+      await vi.waitFor(() => { expect(mockRegisterScript).toHaveBeenCalledTimes(1); });
+
+      // The reset must invalidate the in-flight registration too; otherwise the
+      // stale completion re-marks the target initialized for a restarted app.
+      executor.resetInitializationForTarget('localhost', 9300);
+      openGate();
+      await pending;
+
+      await executor.ensureReady(undefined, 9300);
+      expect(mockRegisterScript).toHaveBeenCalledTimes(2);
+   });
+
    it('keeps the requested window for html2canvas fallback screenshots', async () => {
       const executor = await import('../../src/driver/webview-executor.js');
 

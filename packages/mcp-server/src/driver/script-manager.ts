@@ -12,6 +12,14 @@ import { ensureSessionAndConnect } from './plugin-client.js';
 const targetInjectedScripts = new Set<string>();
 
 /**
+ * Registrations currently being sent, keyed the same as `targetInjectedScripts`.
+ * Concurrent callers for the same target share one register_script payload, and
+ * a completion only records its marker while the map still holds that exact
+ * promise, so a reset or removal during flight cannot leave a stale marker.
+ */
+const inFlightInjections = new Map<string, Promise<void>>();
+
+/**
  * Type of script to inject.
  */
 export type ScriptType = 'inline' | 'url';
@@ -123,6 +131,12 @@ export async function removeScript(
       }
    }
 
+   for (const key of inFlightInjections.keys()) {
+      if (key.endsWith(`:${id}`)) {
+         inFlightInjections.delete(key);
+      }
+   }
+
    return response.data as RemoveScriptResponse;
 }
 
@@ -148,6 +162,7 @@ export async function clearScripts(
    }
 
    targetInjectedScripts.clear();
+   inFlightInjections.clear();
 
    return response.data as ClearScriptsResponse;
 }
@@ -189,6 +204,7 @@ export async function isScriptRegistered(id: string, appIdentifier?: string | nu
  */
 export function resetScriptManagerTargets(): void {
    targetInjectedScripts.clear();
+   inFlightInjections.clear();
 }
 
 /**
@@ -204,6 +220,12 @@ export function resetScriptManagerTargetsForTarget(host: string, port: number): 
    for (const key of targetInjectedScripts) {
       if (key.startsWith(prefix)) {
          targetInjectedScripts.delete(key);
+      }
+   }
+
+   for (const key of inFlightInjections.keys()) {
+      if (key.startsWith(prefix)) {
+         inFlightInjections.delete(key);
       }
    }
 }
@@ -230,6 +252,23 @@ export async function ensureScriptLoadedInTarget(
       return;
    }
 
-   await registerScript(id, type, content, windowLabel, appIdentifier);
-   targetInjectedScripts.add(key);
+   let pending = inFlightInjections.get(key);
+
+   if (!pending) {
+      pending = registerScript(id, type, content, windowLabel, appIdentifier)
+         .then(() => {
+            if (inFlightInjections.get(key) === pending) {
+               targetInjectedScripts.add(key);
+            }
+         })
+         .finally(() => {
+            if (inFlightInjections.get(key) === pending) {
+               inFlightInjections.delete(key);
+            }
+         });
+
+      inFlightInjections.set(key, pending);
+   }
+
+   await pending;
 }

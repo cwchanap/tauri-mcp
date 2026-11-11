@@ -34,6 +34,14 @@ import { getResolveRefSource, RESOLVE_REF_SCRIPT_ID } from './scripts/index.js';
 
 const initializedTargets = new Set<string>();
 
+/**
+ * In-flight ensureReady registrations keyed like `initializedTargets`.
+ * Concurrent callers share one registration, and a completion only records its
+ * marker while the map still holds that exact promise so a reset during flight
+ * cannot leave a stale marker.
+ */
+const inFlightInitializations = new Map<string, Promise<void>>();
+
 const driverLogger = createMcpLogger('DRIVER');
 
 /**
@@ -82,12 +90,28 @@ export async function ensureReady(windowId?: string, appIdentifier?: string | nu
       return;
    }
 
-   // Register the resolve-ref helper in the target window
-   // so ref-based selectors work there.
-   await registerScript(RESOLVE_REF_SCRIPT_ID, 'inline', getResolveRefSource(), windowId, appIdentifier);
-   await waitForResolveRefHelper(session, windowId);
+   let pending = inFlightInitializations.get(targetKey);
 
-   initializedTargets.add(targetKey);
+   if (!pending) {
+      // Register the resolve-ref helper in the target window
+      // so ref-based selectors work there.
+      pending = registerScript(RESOLVE_REF_SCRIPT_ID, 'inline', getResolveRefSource(), windowId, appIdentifier)
+         .then(() => { return waitForResolveRefHelper(session, windowId); })
+         .then(() => {
+            if (inFlightInitializations.get(targetKey) === pending) {
+               initializedTargets.add(targetKey);
+            }
+         })
+         .finally(() => {
+            if (inFlightInitializations.get(targetKey) === pending) {
+               inFlightInitializations.delete(targetKey);
+            }
+         });
+
+      inFlightInitializations.set(targetKey, pending);
+   }
+
+   await pending;
 }
 
 /**
@@ -95,6 +119,7 @@ export async function ensureReady(windowId?: string, appIdentifier?: string | nu
  */
 export function resetInitialization(): void {
    initializedTargets.clear();
+   inFlightInitializations.clear();
    resetScriptManagerTargets();
 }
 
@@ -111,6 +136,12 @@ export function resetInitializationForTarget(host: string, port: number): void {
    for (const key of initializedTargets) {
       if (key.startsWith(prefix)) {
          initializedTargets.delete(key);
+      }
+   }
+
+   for (const key of inFlightInitializations.keys()) {
+      if (key.startsWith(prefix)) {
+         inFlightInitializations.delete(key);
       }
    }
 

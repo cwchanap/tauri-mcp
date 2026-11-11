@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const clientMocks = vi.hoisted(() => {
    return {
       healthResults: [] as Array<boolean | Error>,
+      sendCommandInterceptors: [] as Array<(command: { command: string }) => Promise<unknown>>,
       instances: [] as Array<{
          readonly checkConnection: ReturnType<typeof vi.fn>;
          readonly connect: ReturnType<typeof vi.fn>;
          readonly disconnect: ReturnType<typeof vi.fn>;
+         readonly sendCommand: ReturnType<typeof vi.fn>;
          readonly sentCommands: Array<{ command: string }>;
          emit(event: string): boolean;
       }>,
@@ -45,6 +47,12 @@ vi.mock('../../src/driver/plugin-client.js', async () => {
 
       public readonly sendCommand = vi.fn(async (command: { command: string }) => {
          this.sentCommands.push(command);
+
+         const interceptor = clientMocks.sendCommandInterceptors.shift();
+
+         if (interceptor) {
+            return interceptor(command);
+         }
 
          return {
             success: true,
@@ -122,6 +130,7 @@ describe('driver session stale recovery', () => {
    beforeEach(() => {
       vi.resetModules();
       clientMocks.healthResults.length = 0;
+      clientMocks.sendCommandInterceptors.length = 0;
       clientMocks.instances.length = 0;
    });
 
@@ -209,5 +218,84 @@ describe('driver session stale recovery', () => {
 
       await ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
       expect(registerScriptCalls(1)).toBe(1);
+   });
+
+   it('shares one registration between concurrent callers for the same target', async () => {
+      const { manageDriverSession } = await import('../../src/driver/session-manager');
+
+      const { ensureScriptLoadedInTarget } = await import('../../src/driver/script-manager');
+
+      await manageDriverSession('start', 'localhost', 9223);
+
+      let openGate!: () => void;
+
+      const gate = new Promise<void>((resolve) => { openGate = resolve; });
+
+      clientMocks.sendCommandInterceptors.push(async () => {
+         await gate;
+
+         return { success: true, data: { registered: true, scriptId: 'x' } };
+      });
+
+      const first = ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+
+      const second = ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+
+      await vi.waitFor(() => { expect(registerScriptCalls(0)).toBe(1); });
+      openGate();
+      await Promise.all([ first, second ]);
+
+      expect(registerScriptCalls(0)).toBe(1);
+   });
+
+   it('re-registers when a transport reset lands while registration is in flight', async () => {
+      const { manageDriverSession } = await import('../../src/driver/session-manager');
+
+      const { ensureScriptLoadedInTarget } = await import('../../src/driver/script-manager');
+
+      await manageDriverSession('start', 'localhost', 9223);
+
+      let openGate!: () => void;
+
+      const gate = new Promise<void>((resolve) => { openGate = resolve; });
+
+      clientMocks.sendCommandInterceptors.push(async () => {
+         await gate;
+
+         return { success: true, data: { registered: true, scriptId: 'x' } };
+      });
+
+      const pending = ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+
+      await vi.waitFor(() => { expect(registerScriptCalls(0)).toBe(1); });
+
+      // The app restarts mid-registration: the socket drop resets the target's
+      // caches, so the stale completion must not re-mark the script as injected.
+      clientMocks.instances[0]?.emit('disconnected');
+      openGate();
+      await pending;
+
+      await ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+      expect(registerScriptCalls(0)).toBe(2);
+   });
+
+   it('retries registration after the shared in-flight attempt fails', async () => {
+      const { manageDriverSession } = await import('../../src/driver/session-manager');
+
+      const { ensureScriptLoadedInTarget } = await import('../../src/driver/script-manager');
+
+      await manageDriverSession('start', 'localhost', 9223);
+
+      clientMocks.sendCommandInterceptors.push(async () => {
+         return { success: false, error: 'registry full' };
+      });
+
+      await expect(ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content'))
+         .rejects
+         .toThrow('registry full');
+
+      // The failed attempt must not be cached; the next call registers again.
+      await ensureScriptLoadedInTarget('__mcp_html2canvas__', 'inline', 'content');
+      expect(registerScriptCalls(0)).toBe(2);
    });
 });
