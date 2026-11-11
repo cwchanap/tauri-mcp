@@ -23,7 +23,7 @@ describe('html2canvas screenshot script', () => {
 
    it('tags source canvas with an attribute and looks up the clone by attribute', () => {
       const script = buildScreenshotCaptureScript('png', 80, {
-         canvasSelector: 'canvas:nth-child(2)',
+         canvasCapture: { selector: 'canvas:nth-child(2)', script: 'return { width: 1, height: 1, pixels: new Uint8Array(4) };' },
       });
 
       expect(script).toContain('setAttribute(__mcp_markerAttr, \'true\')');
@@ -31,9 +31,24 @@ describe('html2canvas screenshot script', () => {
       expect(script).toContain('removeAttribute(__mcp_markerAttr)');
    });
 
+   it('uses a unique marker attribute per generated capture script', () => {
+      const options = { canvasCapture: { selector: 'canvas', script: 'return { width: 1, height: 1, pixels: new Uint8Array(4) };' } },
+            first = buildScreenshotCaptureScript('png', 80, options),
+            second = buildScreenshotCaptureScript('png', 80, options);
+
+      const firstMarker = first.match(/data-mcp-capture-source-[a-z0-9]+/)?.[0],
+            secondMarker = second.match(/data-mcp-capture-source-[a-z0-9]+/)?.[0];
+
+      expect(firstMarker).toBeDefined();
+      expect(secondMarker).toBeDefined();
+      expect(firstMarker).not.toBe(secondMarker);
+      expect(first).toContain(`const __mcp_markerAttr = '${firstMarker}'`);
+      expect(second).toContain(`const __mcp_markerAttr = '${secondMarker}'`);
+   });
+
    it('marks the source canvas only after the renderer frame is consumed', () => {
       const script = buildScreenshotCaptureScript('png', 80, {
-         canvasSelector: 'canvas',
+         canvasCapture: { selector: 'canvas', script: 'return { width: 1, height: 1, pixels: new Uint8Array(4) };' },
       });
 
       const readbackIndex = script.indexOf('new ImageData'),
@@ -56,15 +71,15 @@ describe('html2canvas screenshot script', () => {
       expect(script).not.toContain('eval(');
       expect(script).toContain('await (async () => {');
       expect(script).toContain('canvas = 1; element = 2; output = 3;');
-      expect(script).toContain('window.__MCP_CANVAS_FRAME__ = __mcp_frame');
    });
 
-   it('reads the stashed renderer frame instead of evaluating a script in the page', () => {
+   it('keeps the renderer frame in a local binding instead of a shared window slot', () => {
       const script = buildScreenshotCaptureScript('png', 80, {
-         canvasSelector: 'canvas',
+         canvasCapture: { selector: 'canvas', script: 'return { width: 1, height: 1, pixels: new Uint8Array(4) };' },
       });
 
-      expect(script).toContain('window.__MCP_CANVAS_FRAME__');
+      expect(script).toContain('const __mcp_frame = await (async () => {');
+      expect(script).not.toContain('window.__MCP_CANVAS_FRAME__');
       expect(script).not.toContain('AsyncFunction');
       expect(script).not.toContain('new Function');
    });
