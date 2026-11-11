@@ -25,7 +25,7 @@ export interface CanvasCaptureOptions {
 }
 
 interface DomCaptureOptions {
-   canvasSelector?: string;
+   canvasCapture?: CanvasCaptureOptions;
    maxWidth?: number;
 }
 
@@ -93,8 +93,13 @@ export const HTML2CANVAS_OPTIONS_SCRIPT = `{
       }`;
 
 /**
- * Build a script that runs the app-provided canvasCapture readback and stashes
- * the validated frame on window for the capture script to pick up.
+ * Build the readback block of a renderer capture script. Runs the app-provided
+ * canvasCapture readback and leaves the validated frame in a local __mcp_frame
+ * binding for the capture pass in the same script.
+ *
+ * The frame deliberately never touches window: the readback and the html2canvas
+ * pass run in one execute_js payload, so concurrent screenshots cannot
+ * interleave readbacks and captures through a shared slot.
  *
  * The readback body is inlined as an async function body inside the payload.
  * execute_js compiles that payload through the native evaluation channel, so
@@ -127,8 +132,6 @@ ${canvasCapture.script}
             }
          }
       }
-      window.__MCP_CANVAS_FRAME__ = __mcp_frame;
-      return true;
    `;
 }
 
@@ -137,27 +140,20 @@ ${canvasCapture.script}
  * Assumes html2canvas is already loaded (either via script manager or inline).
  */
 export function buildScreenshotCaptureScript(format: 'png' | 'jpeg', quality: number, options: DomCaptureOptions = {}): string {
-   const readbackScript = options.canvasSelector ? `
-      const __mcp_captureSelector = ${JSON.stringify(options.canvasSelector)};
-      const __mcp_sources = document.querySelectorAll(__mcp_captureSelector);
-      if (__mcp_sources.length !== 1 || !(__mcp_sources[0] instanceof HTMLCanvasElement)) {
-         throw new Error('canvasCapture selector must match exactly one canvas');
-      }
-      const __mcp_sourceCanvas = __mcp_sources[0];
-      const __mcp_markerAttr = 'data-mcp-capture-source';
+   // A unique marker attribute per generated script keeps concurrent captures
+   // on the same window from matching another request's canvas in onclone.
+   const markerAttribute = `data-mcp-capture-source-${Math.random().toString(36).slice(2, 10)}`;
 
-      const __mcp_frame = window.__MCP_CANVAS_FRAME__;
-      delete window.__MCP_CANVAS_FRAME__;
-      if (!__mcp_frame) {
-         throw new Error('canvasCapture renderer frame is unavailable');
-      }
+   const readbackScript = options.canvasCapture ? `
+      ${buildCanvasReadbackScript(options.canvasCapture)}
+      const __mcp_markerAttr = '${markerAttribute}';
       const capturedImage = new ImageData(new Uint8ClampedArray(__mcp_frame.pixels), __mcp_frame.width, __mcp_frame.height);
    ` : '';
 
    // Note: This script is wrapped by executeAsyncInWebview, so we don't need an IIFE
    return `
-      ${HTML2CANVAS_RESOLVER_SCRIPT}
       ${readbackScript}
+      ${HTML2CANVAS_RESOLVER_SCRIPT}
 
       // Render the document, but crop the output to the visible viewport. Without
       // explicit bounds html2canvas allocates a canvas for the full scrollable
@@ -175,7 +171,7 @@ export function buildScreenshotCaptureScript(format: 'png' | 'jpeg', quality: nu
 
       // Capture the webview
       let canvas;
-      ${options.canvasSelector ? `__mcp_sourceCanvas.setAttribute(__mcp_markerAttr, 'true');` : ''}
+      ${options.canvasCapture ? `__mcp_sourceCanvas.setAttribute(__mcp_markerAttr, 'true');` : ''}
       try {
          canvas = await html2canvasFn(element, {
             ...${HTML2CANVAS_OPTIONS_SCRIPT},
@@ -187,7 +183,7 @@ export function buildScreenshotCaptureScript(format: 'png' | 'jpeg', quality: nu
             windowHeight: viewportHeight,
             scrollX: viewportX,
             scrollY: viewportY,
-            ${options.canvasSelector ? `onclone: (clonedDocument) => {
+            ${options.canvasCapture ? `onclone: (clonedDocument) => {
                const target = clonedDocument.querySelector('[' + __mcp_markerAttr + ']');
                if (!target || target.tagName !== 'CANVAS') {
                   throw new Error('canvasCapture cloned canvas is unavailable');
@@ -200,7 +196,7 @@ export function buildScreenshotCaptureScript(format: 'png' | 'jpeg', quality: nu
             },` : ''}
          });
       } finally {
-         ${options.canvasSelector ? `__mcp_sourceCanvas.removeAttribute(__mcp_markerAttr);` : ''}
+         ${options.canvasCapture ? `__mcp_sourceCanvas.removeAttribute(__mcp_markerAttr);` : ''}
       }
       if (!canvas) {
          throw new Error('html2canvas returned null canvas');

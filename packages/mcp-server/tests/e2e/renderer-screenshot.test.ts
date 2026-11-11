@@ -61,6 +61,44 @@ describe('Renderer readback screenshots', () => {
       expect(pixels).toEqual({ width: 400, map: [ 255, 0, 0, 255 ], hud: [ 0, 0, 255, 255 ], source: [ 0, 0, 0, 255 ] });
    });
 
+   it('isolates renderer frames between concurrent screenshot requests', async () => {
+      function solid(r: number, g: number, b: number): string {
+         const pixels = Array(4).fill([ r, g, b, 255 ]).flat().join(',');
+
+         return `return { width: 2, height: 2, pixels: new Uint8Array([${pixels}]) };`;
+      }
+
+      async function mapPixel(data: string): Promise<number[]> {
+         return JSON.parse(await executeAsyncInWebview(`
+            const image = new Image();
+            image.src = 'data:image/png;base64,' + ${JSON.stringify(data)};
+            await image.decode();
+            const canvas = document.createElement('canvas');
+            canvas.width = image.width; canvas.height = image.height;
+            const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0);
+            const scale = image.width / innerWidth;
+            return JSON.stringify(Array.from(ctx.getImageData(Math.floor(60 * scale), Math.floor(60 * scale), 1, 1).data));
+         `));
+      }
+
+      const [ redResult, greenResult ] = await Promise.all([
+         screenshot({ format: 'png', canvasCapture: { selector, script: solid(255, 0, 0) } }),
+         screenshot({ format: 'png', canvasCapture: { selector, script: solid(0, 128, 0) } }),
+      ]);
+
+      if (!('content' in redResult) || !('content' in greenResult)) {
+         throw new Error('Expected image results');
+      }
+      const redImage = redResult.content.find((item) => { return item.type === 'image'; }),
+            greenImage = greenResult.content.find((item) => { return item.type === 'image'; });
+
+      if (redImage?.type !== 'image' || greenImage?.type !== 'image') {
+         throw new Error('Expected PNG content');
+      }
+      expect(await mapPixel(redImage.data)).toEqual([ 255, 0, 0, 255 ]);
+      expect(await mapPixel(greenImage.data)).toEqual([ 0, 128, 0, 255 ]);
+   });
+
    it('restores the helper in the target document even when the app registry already contains it', async () => {
       await screenshot({ windowId: 'main', format: 'png', canvasCapture: { selector, script } });
       await executeAsyncInWebview('delete window.html2canvas; return true;');

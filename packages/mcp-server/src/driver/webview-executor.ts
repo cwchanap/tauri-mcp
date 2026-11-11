@@ -6,7 +6,6 @@ import { ensureSessionAndConnect } from './plugin-client.js';
 import {
    buildScreenshotScript,
    buildScreenshotCaptureScript,
-   buildCanvasReadbackScript,
    getWrappedHtml2CanvasSource,
    HTML2CANVAS_SCRIPT_ID,
    CanvasCaptureOptions,
@@ -458,7 +457,7 @@ async function prepareHtml2canvasScript(
    quality: number,
    windowId?: string,
    appIdentifier?: string | number,
-   captureOptions: { canvasSelector?: string; maxWidth?: number } = {}
+   captureOptions: { canvasCapture?: CanvasCaptureOptions; maxWidth?: number } = {}
 ): Promise<string> {
    try {
       // Ensure the bundled html2canvas-pro is loaded into this target window
@@ -532,21 +531,18 @@ async function captureRendererScreenshot(options: CaptureScreenshotOptions): Pro
 
    const maxWidth = Number.isSafeInteger(configuredMaxWidth) && configuredMaxWidth > 0 ? configuredMaxWidth : undefined;
 
-   const readbackScript = buildCanvasReadbackScript(canvasCapture);
-
    try {
-      // Native evaluation compiles the readback body directly, so a page CSP
-      // without unsafe-eval cannot refuse it the way in-page AsyncFunction
-      // construction was. The validated frame is stashed on window for the
-      // capture script to consume.
-      await executeAsyncInWebview(readbackScript, windowId, 10000, appIdentifier);
-
+      // The readback and the html2canvas pass go out in one execute_js payload.
+      // Native evaluation compiles the readback body outside the page's CSP
+      // eval policy, and keeping the frame in a local binding means concurrent
+      // captures cannot interleave through shared window state. The single
+      // command gets the combined 20s budget of the previous two 10s calls.
       const script = await prepareHtml2canvasScript(format, quality, windowId, appIdentifier, {
-         canvasSelector: canvasCapture.selector,
+         canvasCapture,
          maxWidth,
       });
 
-      const result = await executeAsyncInWebview(script, windowId, 10000, appIdentifier);
+      const result = await executeAsyncInWebview(script, windowId, 20000, appIdentifier);
 
       return buildScreenshotResult(result, 'renderer readback + html2canvas');
    } catch(error: unknown) {
